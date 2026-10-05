@@ -1,0 +1,25 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Raw captures too large or machine-specific; validated small captures live in
+# crates/movement/tests/captures/ and are committed.
+/data/captures/raw/
+
+# Generated compare reports
+/reports/
+
+# Never commit game assets
+*.bsp
+*.vpk
+*.dem
