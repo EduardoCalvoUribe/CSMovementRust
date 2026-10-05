@@ -242,6 +242,15 @@ pub trait MovementMode {
   `process_movement`. This matches how input timing at a given FPS shapes which command a press lands in
   [Ref §2]. Do not integrate with `Time::delta`.
 - Store the `UserCmd` in a ring buffer for replay export.
+- **Input-per-tick contract:** `UserCmd` is the only way input reaches the sim, and it is built once per tick.
+  `Update` must latch edge events (a press and release that both land between two ticks, as with a scroll-wheel
+  jump) and hand them to the next tick, so no press is dropped or doubled. Clear the latches after the tick
+  consumes them.
+- **Source of truth:** `PlayerState` is authoritative. Bevy `Transform` is a render copy written from the
+  interpolated state, and nothing reads position or velocity back from it.
+- **Catch-up cap:** after a frame stall, `FixedUpdate` would run many ticks in a row. Cap the ticks per frame
+  (for example 4) and discard the excess accumulated time, so the sim never spirals. A discarded-time event
+  should be logged because it invalidates any capture comparison for that run.
 - Jump on scroll wheel: map wheel events to a jump press and release inside the same frame window. Required for
   vanilla-style bhop testing. Also provide held-jump with an autohop toggle (needed in KZTimer and SimpleKZ runs).
 
