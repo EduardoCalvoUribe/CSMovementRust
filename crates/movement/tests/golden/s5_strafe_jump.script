@@ -1,0 +1,7 @@
+# vanilla 64
+# S5: jump with strafe input and a fixed yaw rate.
+W 60
+J 1
+A 25 yaw 1.1
+D 25 yaw -1.1
+- 20

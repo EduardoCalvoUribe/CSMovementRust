@@ -1,0 +1,7 @@
+# vanilla 64
+# S14/S15: crouch-jump, crouch in air, release.
+CJ 1
+C 30
+- 40
+C 20
+- 20

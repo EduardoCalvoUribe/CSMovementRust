@@ -1,0 +1,7 @@
+# kztimer 64
+# M-S7: KZTimer prestrafe then bhop.
+WA 80 yaw 0.8
+J 1
+A 30 yaw 1.5
+D 30 yaw -1.5
+- 30

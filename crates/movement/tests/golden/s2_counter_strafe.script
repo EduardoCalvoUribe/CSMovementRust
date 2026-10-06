@@ -1,0 +1,5 @@
+# vanilla 64
+# S2: run right, counter-strafe left.
+D 80
+A 10
+- 20

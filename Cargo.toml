@@ -1,3 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/movement"]
+members = ["crates/movement", "crates/app"]
+
+# Keep Bevy usable in debug builds (plan §4 item 4). These change optimization only; no setting here
+# enables fast-math or FMA contraction, which stable Rust never does implicitly. The `movement` crate is
+# a workspace member, so it keeps the workspace dev opt-level and full debug info.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+debug = false

@@ -36,16 +36,24 @@ A from-scratch reimplementation of CS:GO (Source 1) player movement in Rust, wit
 
 ## 3. Current state
 
-Done, in `crates/movement` (no dependencies):
+Toolchain (M0) is done: Rust 1.99 and MSVC Build Tools are installed, and `cargo test` is green.
 
-- `config.rs`: `MovementConfig::vanilla()`.
-- `math.rs`: minimal `f32` `Vec3`.
-- `stamina.rs`: recovery, jump and land cost, speed and jump scales.
-- `physics.rs`: friction, ground acceleration, air acceleration, and 4 unit tests using the numbers derived in
-  [Ref §5–7].
+`crates/movement` implements the pipeline in §5.3 with one function per Source routine: `check_parameters`,
+`reduce_timers`, `duck` (with `finish_duck` / `finish_unduck` / `can_unduck`), `ladder_move`,
+`full_walk_move`, `check_jump_button` / `prevent_bunny_jumping`, `friction`, CS `accelerate`, `air_accelerate`,
+`walk_move` with the total-speed clamp, `air_move`, `try_player_move`, `step_move`, `stay_on_ground`,
+`categorize_position` (with quadrant probes and deadstrafe friction), `set_ground_entity`, `check_falling`.
+Also: primitive brush world with a Source-style swept-AABB trace, the observer and technique detector,
+three modes, jump stats, a command DSL, and bit-exact record/replay.
 
-Blocked: `cargo test` cannot link because MSVC Build Tools are not installed (see §4). The code passes
-`cargo check --tests`.
+`crates/app` is the Bevy 0.19.1 host (§6, §7): fixed-tick sim with input latching and a catch-up cap,
+interpolated camera, the §6.3 test level from one description, HUD, debug draw, hotkeys, recording, and a
+`--check` headless replay.
+
+Milestone gates (automated parts) pass for M1–M8; see `README.md` for the per-subsystem status. Not done:
+the §9 verification rig and captures (M1.5 and every capture-based gate, deliberately out of scope for now),
+the ghost overlay, M9 and M10. The GOKZ mode hooks are designs from [Ref §20], not ports (see
+`docs/modes-notes.md`). Unverified choices are listed in `docs/divergences.md`.
 
 ## 4. Environment setup (do first)
 

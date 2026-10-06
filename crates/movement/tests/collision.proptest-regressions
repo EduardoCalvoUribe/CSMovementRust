@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0e0b0cf7f4879f9d137641480204417f3771af22f5d8547983ba8bc3e33d3c3c # shrinks to boxes = [Brush { planes: [Plane { normal: Vec3 { x: 1.0, y: 0.0, z: 0.0 }, dist: 8.0 }, Plane { normal: Vec3 { x: -1.0, y: 0.0, z: 0.0 }, dist: -0.0 }, Plane { normal: Vec3 { x: 0.0, y: 1.0, z: 0.0 }, dist: 123.95959 }, Plane { normal: Vec3 { x: 0.0, y: -1.0, z: 0.0 }, dist: -0.0 }, Plane { normal: Vec3 { x: 0.0, y: 0.0, z: 1.0 }, dist: 123.38605 }, Plane { normal: Vec3 { x: 0.0, y: 0.0, z: -1.0 }, dist: -115.38605 }], mins: Vec3 { x: 0.0, y: 0.0, z: 115.38605 }, maxs: Vec3 { x: 8.0, y: 123.95959, z: 123.38605 }, shape: Box { min: Vec3 { x: 0.0, y: 0.0, z: 115.38605 }, max: Vec3 { x: 8.0, y: 123.95959, z: 123.38605 } }, contents: Solid, entity: EntityId(0) }], start = (90.4409, 132.7629, 34.52516), delta = (-327.60385, 0.0, 42.840496)

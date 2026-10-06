@@ -1,0 +1,7 @@
+# simplekz 128
+# M-S7: SimpleKZ prestrafe then hops.
+WD 160 yaw -0.5
+J 1
+D 60 yaw -0.8
+J 1
+- 120

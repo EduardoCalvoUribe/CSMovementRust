@@ -28,12 +28,13 @@ those licenses before porting logic. Never commit Valve assets (maps, textures, 
 
 ## Workflow
 - Run cargo from **PowerShell**, not Git Bash: Git Bash resolves GNU `link` ahead of MSVC `link.exe` and linking
-  fails. MSVC Build Tools must be installed.
+  fails. MSVC Build Tools must be installed (here: `D:\Programs\VSBuildTools`). Rust lives on D: via the user
+  env vars `RUSTUP_HOME=D:\Programs\rust\rustup` and `CARGO_HOME=D:\Programs\rust\cargo`.
 - `cargo test` must stay green. Numbers in tests come from the reference and carry a `[Ref §N]` comment.
 - Pin the Bevy version exactly; check MSRV against the installed `rustc` before upgrading.
 - Validated real-server captures become regression tests under `crates/movement/tests/captures/` (plan §9.6).
 - Record each resolved mismatch with the real game in `docs/divergences.md`.
 
 ## Status
-See `game-plan.md` §3 and §8. Current: M0 (toolchain) pending; `movement` has constants, stamina, friction, and
-ground/air acceleration with 4 unit tests.
+See `game-plan.md` §3 and §8, and `README.md` for verification status. Current: M0–M8 implemented with automated
+gates green (manual M5 playtest pending); §9 capture rig, ghost overlay, M9 (BSP), M10 (triggers) not started.
