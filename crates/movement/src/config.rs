@@ -24,7 +24,10 @@ pub struct MovementConfig {
     pub stamina_max: f32,
     pub stamina_range: f32,
     pub walk_modifier: f32,
+    /// Acceleration multiplier while a duck transition is in progress (hull not yet ducked).
     pub duck_modifier: f32,
+    /// Acceleration multiplier with the duck hull in use.
+    pub ducked_modifier: f32,
     pub ladder_scale: f32,
 
     // Speed sources [Ref §3 "maximum speed is overloaded", §5.2, §11.2]
@@ -60,11 +63,22 @@ pub struct MovementConfig {
     /// Ledge-catch helper [Ref §18, §20]. Recorded but not simulated (see docs/divergences.md).
     pub ledge_helper: bool,
 
-    // Duck [Ref §10.3]. Rates are unverified.
+    // Duck [Ref §10.3]. Measured on CS:GO 1.38.8.1 (docs/divergences.md D5).
     pub duck_speed_ideal: f32,
+    /// Duck speed lost on each duck press or release.
     pub duck_speed_penalty: f32,
+    /// Floor of duck speed after the penalty.
     pub duck_speed_min: f32,
+    /// Duck speed regained per second, every command.
     pub duck_speed_recovery: f32,
+    /// Grounded duck-down rate is `duck_speed * duck_down_scale` per second.
+    pub duck_down_scale: f32,
+    /// Unducking (and a refused duck) moves at `max(duck_speed, unduck_speed_min)` per second.
+    pub unduck_speed_min: f32,
+    /// A duck press is ignored while duck speed (before this command's recovery) is below this.
+    pub duck_refuse_below: f32,
+    /// A grounded unduck restores the standing hull once `duck_amount` falls to this or below.
+    pub unduck_hull_amount: f32,
 }
 
 impl MovementConfig {
@@ -87,6 +101,9 @@ impl MovementConfig {
             stamina_range: 100.0,
             walk_modifier: 0.52,
             duck_modifier: 0.34,
+            // 1 - 0.66 evaluated in f32 (0.33999997): with the duck hull in, 250 times it is 84.99999,
+            // which captures match bit for bit; mid-transition the literal 0.34 applies (D13).
+            ducked_modifier: 1.0 - 0.66,
             ladder_scale: 0.78,
 
             weapon_max_speed: 250.0,
@@ -111,8 +128,12 @@ impl MovementConfig {
 
             duck_speed_ideal: 8.0,
             duck_speed_penalty: 2.0,
-            duck_speed_min: 1.5,
+            duck_speed_min: 0.0,
             duck_speed_recovery: 3.0,
+            duck_down_scale: 0.8,
+            unduck_speed_min: 1.5,
+            duck_refuse_below: 1.5,
+            unduck_hull_amount: 0.75,
         }
     }
 }

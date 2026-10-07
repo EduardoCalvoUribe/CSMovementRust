@@ -1,0 +1,13 @@
+[package]
+name = "compare"
+version = "0.1.0"
+edition = "2021"
+description = "Capture rig tooling (plan §9): map and scenario generation, capture import, comparison"
+
+[[bin]]
+name = "compare"
+path = "src/main.rs"
+
+[dependencies]
+movement = { path = "../../crates/movement" }
+testlevel = { path = "../../crates/testlevel" }

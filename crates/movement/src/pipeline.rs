@@ -198,11 +198,6 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         if self.state.stamina > 0.0 {
             self.state.stamina = crate::stamina::recover(self.cfg, self.state.stamina, self.dt);
         }
-        self.state.duck_speed = crate::math::approach(
-            self.cfg.duck_speed_ideal,
-            self.state.duck_speed,
-            self.dt * self.cfg.duck_speed_recovery,
-        );
         if self.state.ladder_jump_ignore > 0.0 {
             self.state.ladder_jump_ignore = (self.state.ladder_jump_ignore - self.dt).max(0.0);
         }
@@ -217,10 +212,8 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
             mv.max_speed *= k;
         };
 
-        let d = self.state.duck_amount;
-        if d > 0.0 {
-            scale_inputs(&mut self.mv, 1.0 - DUCK_CROP * d);
-        }
+        // The duck crop is applied at the end of `duck` (`HandleDuckingSpeedCrop`), with this command's
+        // duck amount: measured, docs/divergences.md D13.
         if self.mv.buttons.contains(Buttons::WALK) && !self.state.ducked {
             scale_inputs(&mut self.mv, self.cfg.walk_modifier);
         }

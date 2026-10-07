@@ -1,0 +1,6 @@
+scenario = "S13-46-walk_vanilla_128"
+requested_origin = "-3800.000000 -72.000000 1.000000"
+requested_yaw = 0.000000
+settle = 64
+geometry = "testlevel"
+level_hash = "bcbe1118972ec86f"

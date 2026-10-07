@@ -2,6 +2,7 @@
 
 use crate::cmd::Buttons;
 use crate::instrument::{JumpBranch, JumpEvent, MoveObserver};
+use crate::math::Vec3;
 use crate::pipeline::Mover;
 use crate::trace::TraceWorld;
 
@@ -54,7 +55,12 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         // CS OnJump: jump stamina from the measured impulse [Ref §8].
         self.state.stamina = crate::stamina::after_jump(self.cfg, self.state.stamina, self.mv.out_jump_vel.z);
         let ground_speed = self.state.velocity.length_2d();
-        self.mode.on_jump(self.state, ground_speed);
+        // Height of the support under the takeoff (the 2-unit ground probe's hit), for modes that move
+        // the takeoff onto it.
+        let o = self.state.origin;
+        let probe = self.world.trace_hull(o, Vec3::new(o.x, o.y, o.z - self.cfg.ground_probe), self.state.hull());
+        let ground_z = (probe.fraction < 1.0 && !probe.start_solid).then_some(probe.end_pos.z);
+        self.mode.on_jump(self.state, ground_speed, ground_z);
 
         self.mv.old_buttons.insert(Buttons::JUMP);
         let ev = JumpEvent { jumped: true, branch: Some(branch), impulse, before, after: self.motion() };

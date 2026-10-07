@@ -1,0 +1,6 @@
+scenario = "S13-50-slide_vanilla_128"
+requested_origin = "-3550.000000 328.000000 98.632812"
+requested_yaw = 0.000000
+settle = 1
+geometry = "testlevel"
+level_hash = "bcbe1118972ec86f"

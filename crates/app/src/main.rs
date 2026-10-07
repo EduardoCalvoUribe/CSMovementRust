@@ -1,8 +1,10 @@
 //! Bevy host for the `movement` crate: window, input, fixed-tick sim, camera, level, HUD (plan §6).
 //!
 //! `csmove --check <file.replay>` replays a recording headlessly and compares it with the live run.
+//! `csmove --ghost <capture>` plays a real-server capture with the captured hull drawn as a ghost.
 
 mod camera;
+mod ghost;
 mod hud;
 mod input;
 mod level;
@@ -32,8 +34,26 @@ fn main() {
     let level = level::describe();
     let world = level::build_world(&level);
     let spawn = (level.areas[0].spawn, level.areas[0].yaw);
+    let mut sim = sim::Sim::new(world, spawn);
+    let ghost = if args.len() == 3 && args[1] == "--ghost" {
+        let mut g = ghost::Ghost::load(std::path::Path::new(&args[2])).unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(1)
+        });
+        if let Err(e) = g.reset(&mut sim) {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+        Some(g)
+    } else {
+        None
+    };
 
-    App::new()
+    let mut app = App::new();
+    if let Some(g) = ghost {
+        app.insert_resource(g);
+    }
+    app
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "CSMovementRust".into(),
@@ -45,7 +65,7 @@ fn main() {
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .insert_resource(ClearColor(Color::srgb(0.53, 0.68, 0.85)))
         .insert_resource(Time::<Fixed>::from_hz(64.0))
-        .insert_resource(sim::Sim::new(world, spawn))
+        .insert_resource(sim)
         .insert_resource(modes::LevelInfo(level))
         .init_resource::<input::MouseSettings>()
         .init_resource::<input::ViewAngles>()
@@ -61,7 +81,7 @@ fn main() {
         .add_systems(FixedUpdate, sim::fixed_tick)
         .add_systems(
             Update,
-            (camera::update_camera, camera::update_signs, hud::update_hud, hud::debug_gizmos).chain(),
+            (camera::update_camera, camera::update_signs, hud::update_hud, hud::debug_gizmos, ghost::ghost_gizmos).chain(),
         )
         .run();
 }

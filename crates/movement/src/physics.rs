@@ -1,4 +1,4 @@
-//! Friction, acceleration, and walk/air movement [Ref §4–7, §5.3].
+//! Friction, acceleration, and walk/air movement [Ref ?4?7, ?5.3].
 //!
 //! The free functions are the math cores, written in Source's operation order. The `Mover` methods are the
 //! routines (`Friction`, `Accelerate`, `AirAccelerate`, `WalkMove`, `AirMove`) that read and write state.
@@ -9,7 +9,7 @@ use crate::math::Vec3;
 use crate::pipeline::Mover;
 use crate::trace::TraceWorld;
 
-/// Ground friction [Ref §5.1]. `surface_friction` is mu.
+/// Ground friction [Ref ?5.1]. `surface_friction` is mu.
 pub fn friction(cfg: &MovementConfig, v: Vec3, surface_friction: f32, dt: f32) -> Vec3 {
     let speed = v.length();
     if speed < 0.1 {
@@ -29,7 +29,7 @@ pub fn friction(cfg: &MovementConfig, v: Vec3, surface_friction: f32, dt: f32) -
     v
 }
 
-/// Inputs to the CS ground acceleration override [Ref §5.2].
+/// Inputs to the CS ground acceleration override [Ref ?5.2].
 #[derive(Clone, Copy, Debug)]
 pub struct GroundAccel {
     pub wish_dir: Vec3,
@@ -37,11 +37,14 @@ pub struct GroundAccel {
     pub accel: f32,
     pub surface_friction: f32,
     pub dt: f32,
+    /// The duck hull is in use.
     pub ducked: bool,
+    /// A duck transition is in progress (m_bDucking).
+    pub ducking: bool,
     pub walking: bool,
 }
 
-/// CS ground acceleration. Returns the new velocity and the budget before the room clamp [Ref §5.2].
+/// CS ground acceleration. Returns the new velocity and the budget before the room clamp [Ref ?5.2].
 pub fn ground_accelerate(cfg: &MovementConfig, v: Vec3, a: GroundAccel) -> (Vec3, f32) {
     let current = v.dot(a.wish_dir);
     let add_speed = a.wish_speed - current;
@@ -51,20 +54,21 @@ pub fn ground_accelerate(cfg: &MovementConfig, v: Vec3, a: GroundAccel) -> (Vec3
 
     let mut accel_scale = a.wish_speed.max(250.0);
     let mut goal_speed = accel_scale;
-    // The scoped-sniper branch is implemented as a flag that is never set (plan §13 item 3).
+    // The scoped-sniper branch is implemented as a flag that is never set (plan ?13 item 3).
     let slow_scoped = false;
     if cfg.weapon_speed_scaling {
         let k = (cfg.weapon_max_speed / 250.0).min(1.0);
         goal_speed *= k;
-        if (!a.walking && !a.ducked) || slow_scoped {
+        if (!a.walking && !a.ducked && !a.ducking) || slow_scoped {
             accel_scale *= k;
         }
     }
-    if a.ducked {
+    if a.ducked || a.ducking {
+        let k = if a.ducked { cfg.ducked_modifier } else { cfg.duck_modifier };
         if !slow_scoped {
-            accel_scale *= cfg.duck_modifier;
+            accel_scale *= k;
         }
-        goal_speed *= cfg.duck_modifier;
+        goal_speed *= k;
     }
     if a.walking {
         if !slow_scoped {
@@ -83,7 +87,7 @@ pub fn ground_accelerate(cfg: &MovementConfig, v: Vec3, a: GroundAccel) -> (Vec3
     (v.ma(accel_speed, a.wish_dir), budget)
 }
 
-/// Air acceleration [Ref §6]. The directional limit uses the CAPPED wish speed, the budget the UNCAPPED one.
+/// Air acceleration [Ref ?6]. The directional limit uses the CAPPED wish speed, the budget the UNCAPPED one.
 /// Returns the new velocity and the budget.
 pub fn air_accelerate(
     cfg: &MovementConfig,
@@ -104,7 +108,10 @@ pub fn air_accelerate(
     (v.ma(accel_speed, wish_dir), budget)
 }
 
-/// `ClipVelocity` [Ref §12.2]. Returns the clipped velocity and the blocked flags.
+/// `ClipVelocity` [Ref ?12.2]. Returns the clipped velocity and the blocked flags.
+/// Velocity added along the plane normal when a clip still points into the plane (D16).
+pub const CLIP_PUSH: f32 = 1.0 / 32.0;
+
 pub fn clip_velocity(v: Vec3, normal: Vec3, overbounce: f32) -> (Vec3, u32) {
     let angle = normal.z;
     let mut blocked = 0;
@@ -116,10 +123,12 @@ pub fn clip_velocity(v: Vec3, normal: Vec3, overbounce: f32) -> (Vec3, u32) {
     }
     let backoff = v.dot(normal) * overbounce;
     let mut out = Vec3::new(v.x - normal.x * backoff, v.y - normal.y * backoff, v.z - normal.z * backoff);
-    // Iterate once to make sure we aren't still moving through the plane.
+    // Make sure we aren't still moving through the plane. CS:GO pushes off by 1/32 unit/s along the
+    // normal instead of removing exactly the residual (SDK 2013 subtracts `normal * adjust`); measured
+    // bit for bit on slope slides, docs/divergences.md D16.
     let adjust = out.dot(normal);
     if adjust < 0.0 {
-        out = out.sub(normal.scale(adjust));
+        out = out.add(normal.scale(CLIP_PUSH));
     }
     (out, blocked)
 }
@@ -133,7 +142,7 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         self.state.velocity = friction(self.cfg, self.state.velocity, self.state.surface_friction, self.dt);
     }
 
-    /// Wish direction and speed from the horizontal view basis [Ref §4].
+    /// Wish direction and speed from the horizontal view basis [Ref ?4].
     fn wish(&mut self, always_normalize: bool) -> (Vec3, Vec3, f32) {
         let mut f = self.mv.basis.forward;
         let mut r = self.mv.basis.right;
@@ -166,10 +175,12 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         (wish_vel, wish_dir, wish_speed)
     }
 
-    /// CS `Accelerate` [Ref §5.2].
+    /// CS `Accelerate` [Ref ?5.2].
     fn accelerate(&mut self, wish_dir: Vec3, wish_speed: f32, accel: f32) {
         let before = self.motion();
-        let walking = self.mv.buttons.contains(crate::cmd::Buttons::WALK) && !self.state.ducked;
+        // The duck multiplier applies from the first command of a duck transition (m_bDucking), not only
+        // once the duck hull is in: measured, docs/divergences.md D13.
+        let walking = self.mv.buttons.contains(crate::cmd::Buttons::WALK) && !self.state.ducked && !self.state.ducking;
         let (v, budget) = ground_accelerate(
             self.cfg,
             self.state.velocity,
@@ -180,6 +191,7 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
                 surface_friction: self.state.surface_friction,
                 dt: self.dt,
                 ducked: self.state.ducked,
+                ducking: self.state.ducking,
                 walking,
             },
         );
@@ -196,7 +208,7 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         self.obs.on_walk_move(&ev);
     }
 
-    /// `AirAccelerate` [Ref §6, §7].
+    /// `AirAccelerate` [Ref ?6, ?7].
     fn air_accelerate(&mut self, wish_dir: Vec3, wish_speed: f32) {
         let before = self.motion();
         let (v, budget) = air_accelerate(
@@ -222,7 +234,7 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         self.obs.on_air_accelerate(&ev);
     }
 
-    /// `WalkMove` with the CS total-speed clamp [Ref §5.3].
+    /// `WalkMove` with the CS total-speed clamp [Ref ?5.3].
     pub(crate) fn walk_move(&mut self) {
         let (_wish_vel, wish_dir, wish_speed) = self.wish(false);
         let old_ground = self.state.ground_entity;
@@ -269,7 +281,7 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         self.stay_on_ground();
     }
 
-    /// `AirMove` [Ref §6].
+    /// `AirMove` [Ref ?6].
     pub(crate) fn air_move(&mut self) {
         let (_wish_vel, wish_dir, wish_speed) = self.wish(true);
         self.air_accelerate(wish_dir, wish_speed);
@@ -292,7 +304,7 @@ mod tests {
 
     #[test]
     fn friction_step_at_250() {
-        // [Ref §5.1]: 20.3125 at 64 tick, 10.15625 at 128 tick.
+        // [Ref ?5.1]: 20.3125 at 64 tick, 10.15625 at 128 tick.
         let cfg = MovementConfig::vanilla();
         let v = friction(&cfg, Vec3::new(250.0, 0.0, 0.0), 1.0, DT64);
         approx(250.0 - v.length(), 20.3125, 1e-3);
@@ -302,7 +314,7 @@ mod tests {
 
     #[test]
     fn ground_budget_at_250() {
-        // [Ref §5.2]: A_g = 21.484375 at 64 tick, 10.7421875 at 128 tick.
+        // [Ref ?5.2]: A_g = 21.484375 at 64 tick, 10.7421875 at 128 tick.
         let cfg = MovementConfig::vanilla();
         for (dt, want) in [(DT64, 21.484_375), (DT128, 10.742_187_5)] {
             let (v, budget) = ground_accelerate(
@@ -315,6 +327,7 @@ mod tests {
                     surface_friction: 1.0,
                     dt,
                     ducked: false,
+                    ducking: false,
                     walking: false,
                 },
             );
@@ -325,7 +338,7 @@ mod tests {
 
     #[test]
     fn perpendicular_air_strafe_gain() {
-        // [Ref §6.1]: V=W=250, wish perpendicular, one step -> ~251.793566 (64 tick).
+        // [Ref ?6.1]: V=W=250, wish perpendicular, one step -> ~251.793566 (64 tick).
         let cfg = MovementConfig::vanilla();
         let (v, _) =
             air_accelerate(&cfg, Vec3::new(250.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0), 250.0, 1.0, DT64);
@@ -334,7 +347,7 @@ mod tests {
 
     #[test]
     fn optimal_angle_128_tick() {
-        // [Ref §6.2]: p* = 6.5625 at 128 tick, gain 1.708032.
+        // [Ref ?6.2]: p* = 6.5625 at 128 tick, gain 1.708032.
         let cfg = MovementConfig::vanilla();
         let p = 6.5625_f32;
         let theta = (p / 250.0).acos();
@@ -345,7 +358,7 @@ mod tests {
 
     #[test]
     fn deadstrafe_budget_is_quarter() {
-        // [Ref §7]: 0.25 surface friction -> 11.71875 budget at 64 tick.
+        // [Ref ?7]: 0.25 surface friction -> 11.71875 budget at 64 tick.
         let cfg = MovementConfig::vanilla();
         let (_, budget) =
             air_accelerate(&cfg, Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0), 250.0, 0.25, DT64);
@@ -356,7 +369,7 @@ mod tests {
 
     #[test]
     fn clip_removes_normal_component() {
-        // [Ref §12.2]: v' = v - (v.n) n.
+        // [Ref ?12.2]: v' = v - (v.n) n.
         let (out, blocked) = clip_velocity(Vec3::new(100.0, 50.0, 0.0), Vec3::new(-1.0, 0.0, 0.0), 1.0);
         assert_eq!(out, Vec3::new(0.0, 50.0, 0.0));
         assert_eq!(blocked, 2);

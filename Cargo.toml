@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/movement", "crates/app"]
+members = ["crates/movement", "crates/testlevel", "crates/app", "tools/compare"]
 
 # Keep Bevy usable in debug builds (plan §4 item 4). These change optimization only; no setting here
 # enables fast-math or FMA contraction, which stable Rust never does implicitly. The `movement` crate is

@@ -1,0 +1,6 @@
+scenario = "S14-56-dj_vanilla_64"
+requested_origin = "1028.000000 -1500.000000 1.000000"
+requested_yaw = 0.000000
+settle = 32
+geometry = "testlevel"
+level_hash = "bcbe1118972ec86f"

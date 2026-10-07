@@ -1,0 +1,6 @@
+scenario = "S7_simplekz_128"
+requested_origin = "0.000000 -1000.000000 1.000000"
+requested_yaw = 0.000000
+settle = 64
+geometry = "testlevel"
+level_hash = "bcbe1118972ec86f"

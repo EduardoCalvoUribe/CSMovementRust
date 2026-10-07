@@ -50,9 +50,13 @@ three modes, jump stats, a command DSL, and bit-exact record/replay.
 interpolated camera, the §6.3 test level from one description, HUD, debug draw, hotkeys, recording, and a
 `--check` headless replay.
 
-Milestone gates (automated parts) pass for M1–M8; see `README.md` for the per-subsystem status. Not done:
-the §9 verification rig and captures (M1.5 and every capture-based gate, deliberately out of scope for now),
-the ghost overlay, M9 and M10. The GOKZ mode hooks are designs from [Ref §20], not ports (see
+Milestone gates (automated parts) pass for M1–M8; see `README.md` for the per-subsystem status.
+
+The §9 rig is built and has been run (V0–V7): `tools/capture` (server plugin, setup and run scripts),
+`tools/compare` (map and scenario export, import, diff, reports, promotion), the in-app ghost overlay, and
+about 160 vanilla captures at 64 and 128 tick on CS:GO 1.38.8.1, with 42 promoted to regression tests.
+Results are in `README.md` and `docs/verification.md`; the mismatches they exposed were fixed and are
+recorded in `docs/divergences.md`. Not done: M9 and M10. The GOKZ mode hooks are designs from [Ref §20], not ports (see
 `docs/modes-notes.md`). Unverified choices are listed in `docs/divergences.md`.
 
 ## 4. Environment setup (do first)

@@ -189,7 +189,9 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "compare",
  "movement",
+ "testlevel",
 ]
 
 [[package]]
@@ -2048,6 +2050,14 @@ checksum = "cfc320937d09e6de266b31b9afb480f197d7a861be86be7cb2ea7e5d1bfffc5e"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "compare"
+version = "0.1.0"
+dependencies = [
+ "movement",
+ "testlevel",
 ]
 
 [[package]]
@@ -5024,6 +5034,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "testlevel"
+version = "0.1.0"
+dependencies = [
+ "movement",
 ]
 
 [[package]]

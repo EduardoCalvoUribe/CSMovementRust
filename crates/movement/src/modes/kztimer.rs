@@ -75,7 +75,7 @@ impl MovementMode for KzTimer {
         self.ground.update(state);
     }
 
-    fn on_jump(&mut self, state: &mut PlayerState, _ground_speed: f32) {
+    fn on_jump(&mut self, state: &mut PlayerState, _ground_speed: f32, _ground_z: Option<f32>) {
         if self.ground.ticks <= 1 {
             cap_horizontal(state, PERF_SPEED_CAP);
         }

@@ -18,7 +18,24 @@ pub fn hotkeys(
     mut sim: ResMut<Sim>,
     mut angles: ResMut<ViewAngles>,
     level: Res<LevelInfo>,
+    ghost: Option<ResMut<crate::ghost::Ghost>>,
 ) {
+    if let Some(mut g) = ghost {
+        // A ghost run owns the sim: R restarts the capture; mode and teleport keys are ignored.
+        if keys.just_pressed(KeyCode::KeyR) {
+            let _ = g.reset(&mut sim);
+        }
+        if keys.just_pressed(KeyCode::KeyP) {
+            sim.paused = !sim.paused;
+        }
+        if keys.just_pressed(KeyCode::Period) {
+            sim.step_once = true;
+        }
+        if keys.just_pressed(KeyCode::KeyG) {
+            sim.debug_draw = !sim.debug_draw;
+        }
+        return;
+    }
     let mode_keys = [(KeyCode::F1, ModeKind::Vanilla), (KeyCode::F2, ModeKind::KzTimer), (KeyCode::F3, ModeKind::SimpleKz)];
     for (key, kind) in mode_keys {
         if keys.just_pressed(key) && sim.kind != kind {

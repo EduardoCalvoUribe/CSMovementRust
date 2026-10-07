@@ -1,0 +1,6 @@
+scenario = "S10-150_vanilla_64"
+requested_origin = "-1400.000000 0.000000 1.000000"
+requested_yaw = 150.000000
+settle = 32
+geometry = "testlevel"
+level_hash = "bcbe1118972ec86f"

@@ -10,5 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 movement = { path = "../movement" }
+testlevel = { path = "../testlevel" }
+compare = { path = "../../tools/compare" }
 # Pinned exactly (plan §4). Bevy 0.19.1 has MSRV 1.95.
 bevy = { version = "=0.19.1", features = ["system_font_discovery"] }

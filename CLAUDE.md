@@ -37,4 +37,5 @@ those licenses before porting logic. Never commit Valve assets (maps, textures, 
 
 ## Status
 See `game-plan.md` §3 and §8, and `README.md` for verification status. Current: M0–M8 implemented with automated
-gates green (manual M5 playtest pending); §9 capture rig, ghost overlay, M9 (BSP), M10 (triggers) not started.
+gates green (manual M5 playtest pending); §9 capture rig and ghost overlay built and run against CS:GO
+1.38.8.1 (see `docs/verification.md`); M9 (BSP), M10 (triggers) not started.

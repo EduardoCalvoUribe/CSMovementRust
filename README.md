@@ -8,7 +8,10 @@ Vanilla / KZTimer / SimpleKZ modes, a test level, and a HUD for comparing agains
 - `crates/app`: a thin Bevy 0.19.1 host (window, input, fixed-tick sim, camera, level, HUD).
 - `game-plan.md`: architecture and milestones. `CSGO-Movement-Technical-Reference.md`: the physics spec,
   cited as [Ref §N].
-- `docs/`: divergences and unverified choices, mode notes, jump stats notes.
+- `crates/testlevel`: the test level, shared by the app, the map exporter and the comparator.
+- `tools/compare`: the capture-rig CLI (map and scenario export, import, diff, reports, promotion);
+  `tools/capture`: the server plugin and setup/run scripts (plan §9).
+- `docs/`: verification record, divergences, mode notes, jump stats notes.
 
 ## Build and run
 
@@ -19,6 +22,7 @@ cargo test                       # movement crate + app tests
 cargo test -p movement --release # same results with the optimizer on
 cargo run -p app --release       # the game
 cargo run -p app --release -- --check recordings\<file>.replay   # headless replay vs live run
+cargo run -p app --release -- --ghost data\captures\raw\<run>\<capture>   # play a real-server capture as a ghost
 ```
 
 ## Controls
@@ -44,24 +48,30 @@ platform, jumpbug drop towers, and a ladder.
 
 ## Verification status
 
-Tiers follow plan §9.8: **A** = reference-doc numbers used as test oracles (tests the model, not the game);
-**C** = real-server capture. No tier B, demo, or tier C evidence exists yet: the capture rig (plan §9) has
-not been built. Nothing below is verified against the real game.
+Measured against the real game (Tier C): CS:GO 1.38.8.1 dedicated server, the test level compiled into a
+map, a real client driven by an input-injection plugin, every float logged as raw bits. Rig, commands and
+findings: `docs/verification.md`; every mismatch found and fixed: `docs/divergences.md`. Tiers follow plan
+§9.8 (**A** = reference-doc numbers as test oracles, **C** = real-server capture).
 
-| Subsystem | Status | Tier | Evidence |
-|---|---|---|---|
-| Ground friction / acceleration (S0–S3) | Unverified | A | `tests/ground.rs`: [Ref §5] friction and budget numbers, golden accelerate-from-rest tick counts, counter-strafe model |
-| Air accel, jump, stamina (S4–S9) | Unverified | A | `tests/air.rs`: [Ref §9] apex table at 64/128 (both branches), stamina cost about 24, deadstrafe band, anti-bhop 3D cap, perfect/late bhop |
-| Collision (S10–S13) | Unverified | A | `tests/collision.rs`: wall and crease slides, 18 vs 19 step, 45/46 degree threshold, no-tunneling and trace-sampling property tests |
-| Duck and ledges (S14, S15) | Unverified | A | `tests/duck.rs`: four crouch-jump cases from [Ref §10.2], 9-unit shift, low ceiling |
-| Edgebug, jumpbug, duckbug (S16, S17) | Unverified | A | `tests/techniques.rs`: reproduced on test geometry, detected on exactly that command, [Ref §14] -6.25 signature, [Ref §15.3] 9–11 window |
-| Ladders (S18) | Unverified | A | `tests/techniques.rs`: attach, pitch-dependent climb, hysteresis, jump-ignore, 270 n detach |
-| Per-mode runs (M-*) | Unverified, hook algorithms are designs | A | `tests/modes.rs`: [Ref §20] config table, 276 prestrafe cap, 380 perf cap, SimpleKZ takeoff formula; see `docs/modes-notes.md` |
-| Long jump distance (S19) | Unverified | — | `tests/jumpstats.rs` checks conventions only |
-| Replay determinism | Verified (internal) | — | `tests/replay.rs`: replay equals live bit for bit for all modes; golden scenarios; identical in debug and release |
+Results with the current model, as worst verdict per capture against plan §9.9 (64 tick / 128 tick):
 
-Known gaps against the plan: the §9 capture and comparison rig (excluded from this pass), the in-app ghost
-overlay, BSP loading (M9), triggers and telehops (M10), and the items in `docs/divergences.md`.
+| Subsystem | 64 tick | 128 tick | §9.9 minimum | Status |
+|---|---|---|---|---|
+| Ground friction / acceleration (S0-S3) | 7/7 BIT_EXACT | 7/7 BIT_EXACT | WITHIN_ULP | **Verified** (C), target met |
+| Air accel, jump, stamina, bhop, falls (S4-S9) | 10/10 ≤ WITHIN_EPS, most BIT_EXACT/ULP | 10/10 ≤ WITHIN_EPS | WITHIN_ULP | **Partially verified** (C): a few captures are 1-2 ticks off by more than 4 ULP |
+| Collision: walls, creases, stairs, ramps 30-60° (S10-S13) | 27/27 ≤ WITHIN_EPS | 27/27 ≤ WITHIN_EPS | WITHIN_EPS | **Verified** (C) |
+| Duck and ledges (S14, S15) | all ≤ WITHIN_EPS | all ≤ WITHIN_EPS | same outcome, WITHIN_EPS | **Verified** (C) |
+| Edgebug, jumpbug, duckbug (S16, S17) | events identical; S17 duck_speed column open (D14) | all ≤ WITHIN_EPS | same event sequence | **Verified** (C) for events |
+| Ladders (S18) | WITHIN_EPS | WITHIN_EPS | attach/detach ticks, velocity within 1% | **Verified** (C) |
+| Long jump distance (S19) | WITHIN_EPS | WITHIN_EPS | within 0.05 units | **Verified** (C) |
+| Far from the map origin (S1F, S4F, S7F) | as their near-origin twins | same | | **Verified** (C) |
+| Per-mode runs (M-*): KZTimer, SimpleKZ jumps, bhops, long jumps | no GOKZ counterpart (GOKZ keeps 64 tick Vanilla) | 14/14 ≤ WITHIN_EPS, most BIT_EXACT | same takeoff/landing speeds within 0.01 | **Verified** (C) at 128 tick |
+| KZ prestrafe (S20) | | KZTimer and SimpleKZ FAILED | | **Unverified**: our hook designs differ from GOKZ (D10) |
+| Replay determinism | | | | Verified (internal): replay equals live bit for bit |
+
+Reproducibility of the rig itself: 75 scenarios captured in two separate server sessions are
+bit-identical. 50 validated captures are replayed by `cargo test` (`crates/movement/tests/captures/`,
+checked by `tools/compare/tests/captures.rs`).
 
 ## Provenance
 

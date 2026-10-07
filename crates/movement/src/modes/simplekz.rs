@@ -95,9 +95,14 @@ impl MovementMode for SimpleKz {
         self.landing_speed = state.velocity.length_2d();
     }
 
-    fn on_jump(&mut self, state: &mut PlayerState, _ground_speed: f32) {
+    fn on_jump(&mut self, state: &mut PlayerState, _ground_speed: f32, ground_z: Option<f32>) {
         if self.ground.ticks <= PERF_TICKS {
             cap_horizontal(state, takeoff_speed(self.landing_speed, self.multiplier()));
+            // A perfect hop takes off from the ground, not from wherever the landing left the player
+            // hovering inside the ground probe (measured on GOKZ 3.6.4: `S7_simplekz_128` tick 223).
+            if let Some(z) = ground_z {
+                state.origin.z = z;
+            }
         }
     }
 

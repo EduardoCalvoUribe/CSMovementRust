@@ -249,6 +249,18 @@ impl MoveObserver for EventLog {
     fn on_jump_button(&mut self, e: &JumpEvent) {
         self.lines.push(format!("jump_button jumped={} branch={:?} impulse={}", e.jumped, e.branch, e.impulse));
     }
+    fn on_walk_move(&mut self, e: &AccelEvent) {
+        self.lines.push(format!(
+            "accelerate wish_dir={:?} wish_speed={} budget={} vel {:?}->{:?}",
+            e.wish_dir, e.wish_speed, e.budget, e.before.velocity, e.after.velocity
+        ));
+    }
+    fn on_air_accelerate(&mut self, e: &AccelEvent) {
+        self.lines.push(format!(
+            "air_accelerate wish_dir={:?} wish_speed={} budget={} sf={} vel {:?}->{:?}",
+            e.wish_dir, e.wish_speed, e.budget, e.surface_friction, e.before.velocity, e.after.velocity
+        ));
+    }
     fn on_try_player_move(&mut self, e: &BumpEvent) {
         self.lines.push(format!(
             "bump {:?}#{} frac={} normal={:?} vel {:?}->{:?}",

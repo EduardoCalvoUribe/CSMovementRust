@@ -1,4 +1,4 @@
-//! `CategorizePosition`, `SetGroundEntity`, `CheckFalling` [Ref §7, §12.4, §14].
+//! `CategorizePosition`, `SetGroundEntity`, `CheckFalling` [Ref ?7, ?12.4, ?14].
 
 use crate::instrument::{CategorizeEvent, LandingEvent, MoveObserver, SetGroundEvent};
 use crate::math::Vec3;
@@ -8,13 +8,17 @@ use crate::trace::{Hull, TraceResult, TraceWorld};
 
 impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
     /// Decide whether the player is supported, and store the surface friction the next acceleration will
-    /// use, including the airborne deadstrafe factor [Ref §7].
+    /// use, including the airborne deadstrafe factor [Ref ?7].
     pub(crate) fn categorize_position(&mut self) {
         let ground_before = self.state.ground_entity;
         self.state.surface_friction = 1.0;
 
         let origin = self.state.origin;
-        let point = Vec3::new(origin.x, origin.y, origin.z - self.cfg.ground_probe);
+        // A player who is already grounded and walking probes a step further, and is snapped onto
+        // walkable ground the main probe finds [Ref ?12.4]; measured, docs/divergences.md D4.
+        let grounded_walk = ground_before.is_some() && self.state.move_type == MoveType::Walk;
+        let probe = if grounded_walk { self.cfg.ground_probe + self.cfg.step_size } else { self.cfg.ground_probe };
+        let point = Vec3::new(origin.x, origin.y, origin.z - probe);
 
         let zvel = self.state.velocity.z;
         let moving_up = zvel > 0.0;
@@ -26,6 +30,7 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         } else {
             let hull = self.state.hull();
             let mut pm = self.world.trace_hull(origin, point, hull);
+            let main = pm;
             if pm.hit_entity.is_none() || pm.plane_normal.z < self.cfg.walkable_normal {
                 self.try_touch_ground_in_quadrants(origin, point, hull, &mut pm);
                 if pm.hit_entity.is_none() || pm.plane_normal.z < self.cfg.walkable_normal {
@@ -38,6 +43,12 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
                 }
             } else {
                 self.set_ground_entity(Some(&pm));
+            }
+            // Still grounded after a grounded walk: snap down to whatever the main probe hit, walkable or
+            // not (support may come from a quadrant probe). A probe that starts inside the 1/32 gap has
+            // fraction 0 and doesn't move the player (docs/divergences.md D4).
+            if grounded_walk && self.state.on_ground() && main.fraction > 0.0 && main.fraction < 1.0 && !main.start_solid {
+                self.state.origin = main.end_pos;
             }
         }
 
@@ -73,7 +84,7 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         pm.end_pos = end_pos;
     }
 
-    /// `SetGroundEntity`. Landing zeroes vertical velocity without moving the origin [Ref §12.4].
+    /// `SetGroundEntity`. Landing zeroes vertical velocity without moving the origin [Ref ?12.4].
     pub(crate) fn set_ground_entity(&mut self, pm: Option<&TraceResult>) {
         let new = pm.and_then(|t| t.hit_entity);
         let old = self.state.ground_entity;
@@ -90,13 +101,13 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         self.obs.on_set_ground(&ev);
     }
 
-    /// `CheckFalling`: landing processing, only when grounded with stored fall velocity [Ref §8, §14].
+    /// `CheckFalling`: landing processing, only when grounded with stored fall velocity [Ref ?8, ?14].
     pub(crate) fn check_falling(&mut self) {
         if !self.state.on_ground() || self.state.fall_velocity <= 0.0 {
             return;
         }
         let fall = self.state.fall_velocity;
-        // CS OnLand: landing stamina [Ref §8].
+        // CS OnLand: landing stamina [Ref ?8].
         self.state.stamina = crate::stamina::after_land(self.cfg, self.state.stamina, fall);
         self.mode.on_land(self.state);
         let ev = LandingEvent { fall_velocity: fall, motion: self.motion() };

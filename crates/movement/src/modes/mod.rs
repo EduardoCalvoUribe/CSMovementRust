@@ -48,8 +48,9 @@ pub trait MovementMode {
     /// Called before the command runs. May edit the command (KZTimer jump+duck suppression).
     fn pre_command(&mut self, _state: &mut PlayerState, _cmd: &mut UserCmd, _dt: f32) {}
     fn post_command(&mut self, _state: &mut PlayerState, _cmd: &UserCmd) {}
-    /// Called inside a successful jump, after the impulse. Perf detection and takeoff adjustment.
-    fn on_jump(&mut self, _state: &mut PlayerState, _ground_speed: f32) {}
+    /// Called inside a successful jump, after the impulse and before the move. Perf detection and
+    /// takeoff adjustment. `ground_z` is the height of the support under the takeoff, if any.
+    fn on_jump(&mut self, _state: &mut PlayerState, _ground_speed: f32, _ground_z: Option<f32>) {}
     /// Called from landing processing.
     fn on_land(&mut self, _state: &mut PlayerState) {}
     /// Adjust the move-data maximum speed (prestrafe).

@@ -1,4 +1,4 @@
-//! Primitive-brush world: convex solids given as bounding planes [plan §5.4].
+//! Primitive-brush world: convex solids given as bounding planes [plan ?5.4].
 //!
 //! A hull sweep against a brush expands each plane by the hull's support distance (the Minkowski sum)
 //! and clips the segment against the expanded plane set, stopping `DIST_EPSILON` short of the surface.
@@ -8,10 +8,7 @@
 use crate::math::Vec3;
 use crate::trace::{EntityId, Hull, TraceResult, TraceWorld, DIST_EPSILON};
 
-/// Approach distance below which a sweep that starts in front of a plane is treated as tangent to it.
-/// Much smaller than `DIST_EPSILON`; it absorbs dot-product rounding in slides along non-axial planes
-/// (see docs/divergences.md).
-pub const TANGENT_TOLERANCE: f32 = 1.0e-4;
+
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Plane {
@@ -34,6 +31,34 @@ pub enum Shape {
     Box { min: Vec3, max: Vec3 },
     /// Occupies the box `min..max`; the slope runs from `min.z` at the low edge to `max.z` at the high edge.
     Wedge { min: Vec3, max: Vec3, rise: RiseDir },
+}
+
+/// An upward-facing plane through three points, built the way the BSP compiler builds brush planes
+/// (vbsp `PlaneFromPoints` on 32-bit x87 builds): cross product of the edges, length rounded to f32, an
+/// f32 reciprocal, each component multiplied and rounded, and the distance from the rounded normal.
+/// This is map compilation, not simulation; it reproduces every slope plane of the compiled test map
+/// bit for bit, which plain f32 or f64 arithmetic does not (docs/divergences.md D15).
+fn plane_from_points(p0: [f32; 3], p1: [f32; 3], p2: [f32; 3]) -> Plane {
+    let cross = |p0: [f32; 3], p1: [f32; 3], p2: [f32; 3]| {
+        let u = [p0[0] as f64 - p1[0] as f64, p0[1] as f64 - p1[1] as f64, p0[2] as f64 - p1[2] as f64];
+        let v = [p2[0] as f64 - p1[0] as f64, p2[1] as f64 - p1[1] as f64, p2[2] as f64 - p1[2] as f64];
+        [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+    };
+    // The map writer orders the points so the normal faces out (up for a slope); the first point then
+    // anchors the distance.
+    let (a, c) = {
+        let c = cross(p0, p1, p2);
+        if c[2] < 0.0 {
+            (p2, cross(p2, p1, p0))
+        } else {
+            (p0, c)
+        }
+    };
+    let length = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt() as f32;
+    let inv = (1.0 / length as f64) as f32;
+    let n = [(c[0] * inv as f64) as f32, (c[1] * inv as f64) as f32, (c[2] * inv as f64) as f32];
+    let dist = a[0] as f64 * n[0] as f64 + a[1] as f64 * n[1] as f64 + a[2] as f64 * n[2] as f64;
+    Plane { normal: Vec3::new(n[0], n[1], n[2]), dist: dist as f32 }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,16 +91,14 @@ impl Brush {
             Plane { normal: Vec3::new(0.0, 0.0, -1.0), dist: -min.z },
         ];
         if let Shape::Wedge { rise, .. } = shape {
-            let h = max.z - min.z;
             // The slope passes through the low bottom edge and the high top edge.
-            let (normal, point) = match rise {
-                RiseDir::PosX => (Vec3::new(-h, 0.0, max.x - min.x), Vec3::new(min.x, 0.0, min.z)),
-                RiseDir::NegX => (Vec3::new(h, 0.0, max.x - min.x), Vec3::new(max.x, 0.0, min.z)),
-                RiseDir::PosY => (Vec3::new(0.0, -h, max.y - min.y), Vec3::new(0.0, min.y, min.z)),
-                RiseDir::NegY => (Vec3::new(0.0, h, max.y - min.y), Vec3::new(0.0, max.y, min.z)),
+            let (low, along, high) = match rise {
+                RiseDir::PosX => ([min.x, min.y, min.z], [min.x, max.y, min.z], [max.x, max.y, max.z]),
+                RiseDir::NegX => ([max.x, min.y, min.z], [max.x, max.y, min.z], [min.x, max.y, max.z]),
+                RiseDir::PosY => ([min.x, min.y, min.z], [max.x, min.y, min.z], [max.x, max.y, max.z]),
+                RiseDir::NegY => ([min.x, max.y, min.z], [max.x, max.y, min.z], [max.x, min.y, max.z]),
             };
-            let normal = normal.normalized();
-            planes.push(Plane { normal, dist: normal.dot(point) });
+            planes.push(plane_from_points(low, along, high));
         }
         Self { planes, mins: min, maxs: max, shape, contents: Contents::Solid, entity: EntityId::WORLD }
     }
@@ -101,27 +124,27 @@ impl Brush {
         self
     }
 
-    /// Clip a hull sweep against this brush, tightening `tr` if this brush is hit earlier.
-    fn clip_hull(&self, start: Vec3, end: Vec3, hull: Hull, tr: &mut TraceResult) {
+    /// Clip a box sweep against this brush, tightening `tr` if this brush is hit earlier. The box is
+    /// given as its centre `start`, half-size `extents`, and motion `delta` (Source's `Ray_t`).
+    fn clip_box(&self, start: Vec3, delta: Vec3, extents: Vec3, tr: &mut TraceResult) {
         let mut enter_frac = -1.0f32;
         let mut leave_frac = 1.0f32;
         let mut clip_plane: Option<Vec3> = None;
         let mut get_out = false;
         let mut start_out = false;
-        let delta = end.sub(start);
 
         for p in &self.planes {
-            // Point of the hull that reaches furthest against the plane normal.
+            // Corner of the box that reaches furthest against the plane normal.
             let ofs = Vec3::new(
-                if p.normal.x < 0.0 { hull.maxs.x } else { hull.mins.x },
-                if p.normal.y < 0.0 { hull.maxs.y } else { hull.mins.y },
-                if p.normal.z < 0.0 { hull.maxs.z } else { hull.mins.z },
+                if p.normal.x < 0.0 { extents.x } else { -extents.x },
+                if p.normal.y < 0.0 { extents.y } else { -extents.y },
+                if p.normal.z < 0.0 { extents.z } else { -extents.z },
             );
             let dist = p.dist - ofs.dot(p.normal);
             let d1 = start.dot(p.normal) - dist;
-            // From d1 plus the projected motion, so a move tangent to the plane keeps d2 == d1 exactly
-            // instead of picking up rounding noise (see docs/divergences.md).
-            let d2 = d1 + delta.dot(p.normal);
+            // From the end point, as Source does; deriving it from d1 plus the projected motion puts slope
+            // contacts a few ULP off (measured, docs/divergences.md D1).
+            let d2 = start.add(delta).dot(p.normal) - dist;
 
             if d2 > 0.0 {
                 get_out = true;
@@ -129,9 +152,9 @@ impl Brush {
             if d1 > 0.0 {
                 start_out = true;
             }
-            // Entirely in front of this plane: no contact with the brush. A move that stays inside the
-            // epsilon gap and approaches by less than TANGENT_TOLERANCE counts as tangent.
-            if d1 > 0.0 && (d2 >= DIST_EPSILON || d2 >= d1 - TANGENT_TOLERANCE) {
+            // Both ends in front of this plane: no contact with the brush. The epsilon only enters the
+            // fraction, so a sweep may end inside the 1/32 gap (measured, docs/divergences.md D2).
+            if d1 > 0.0 && d2 > 0.0 {
                 return;
             }
             // Entirely behind this plane: this plane doesn't limit the sweep.
@@ -200,8 +223,17 @@ impl PrimitiveWorld {
         w
     }
 
+    /// Source traces a hull as a box centred on `origin + (mins + maxs) / 2` and converts the end point
+    /// back by subtracting that offset (`Ray_t::Init`, public SDK `cmodel.h`). The arithmetic happens at
+    /// the centre's magnitude, so its rounding is part of the behavior: a resting player at
+    /// z = 0.03124994 comes back from any trace at exactly 0.03125 (see docs/divergences.md).
     fn trace(&self, start: Vec3, end: Vec3, hull: Hull, contents: Contents) -> TraceResult {
         let mut tr = TraceResult::empty(end);
+        let delta = end.sub(start);
+        let extents = hull.maxs.sub(hull.mins).scale(0.5);
+        let start_offset = hull.mins.add(hull.maxs).scale(0.5);
+        let ray_start = start.add(start_offset);
+        let start_offset = start_offset.scale(-1.0);
         let margin = 1.0;
         let lo = Vec3::new(
             start.x.min(end.x) + hull.mins.x - margin,
@@ -213,24 +245,42 @@ impl PrimitiveWorld {
             start.y.max(end.y) + hull.maxs.y + margin,
             start.z.max(end.z) + hull.maxs.z + margin,
         );
+        let mut hit_box = false;
         for b in &self.brushes {
-            if b.contents != contents || !b.may_touch(lo, hi) {
+            // Ladder brushes block the player as well as marking the ladder (CS:GO's invisible-ladder
+            // brushes are player-solid; measured, docs/divergences.md D9).
+            let wanted = b.contents == contents || (contents == Contents::Solid && b.contents == Contents::Ladder);
+            if !wanted || !b.may_touch(lo, hi) {
                 continue;
             }
-            b.clip_hull(start, end, hull, &mut tr);
+            let before = tr.fraction;
+            b.clip_box(ray_start, delta, extents, &mut tr);
+            if tr.fraction < before {
+                hit_box = matches!(b.shape, Shape::Box { .. });
+            }
             if tr.all_solid {
                 break;
             }
         }
-        if tr.fraction == 1.0 {
-            tr.end_pos = end;
-        } else {
-            tr.end_pos = Vec3::new(
-                start.x + tr.fraction * (end.x - start.x),
-                start.y + tr.fraction * (end.y - start.y),
-                start.z + tr.fraction * (end.z - start.z),
-            );
-        }
+        // VectorMA(m_Start, fraction, m_Delta), then back from the box centre to the origin. Which
+        // arithmetic the engine uses depends on what ended the sweep: a stop on an axis-aligned box brush
+        // (BSP "box brushes", traced by their own routine) rounds in f32; a stop on a general brush, or no
+        // stop at all, keeps the sum in extended precision (32-bit x87) and rounds once. Both measured bit
+        // for bit (docs/divergences.md D17). The extended branch is the one place collision arithmetic is
+        // wider than f32.
+        let frac = tr.fraction;
+        let end = |c: f32, d: f32, o: f32| {
+            if hit_box && frac < 1.0 {
+                (c + frac * d) + o
+            } else {
+                ((c as f64 + frac as f64 * d as f64) + o as f64) as f32
+            }
+        };
+        tr.end_pos = Vec3::new(
+            end(ray_start.x, delta.x, start_offset.x),
+            end(ray_start.y, delta.y, start_offset.y),
+            end(ray_start.z, delta.z, start_offset.z),
+        );
         tr
     }
 }

@@ -1,4 +1,4 @@
-//! `TryPlayerMove`, `StepMove`, `StayOnGround` [Ref §12].
+//! `TryPlayerMove`, `StepMove`, `StayOnGround` [Ref ?12].
 
 use crate::instrument::{BumpEvent, MoveObserver};
 use crate::math::Vec3;
@@ -10,11 +10,11 @@ use crate::trace::{TraceWorld, DIST_EPSILON};
 pub const MAX_BUMPS: u32 = 4;
 pub const MAX_CLIP_PLANES: usize = 5;
 /// Source's network coordinate resolution, used by `StayOnGround`.
-const COORD_RESOLUTION: f32 = 1.0 / 32.0;
+pub(crate) const COORD_RESOLUTION: f32 = 1.0 / 32.0;
 
 impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
     /// Slide the hull along the velocity for the remaining command time, clipping against up to
-    /// `MAX_CLIP_PLANES` planes over `MAX_BUMPS` bumps [Ref §12.1, §12.2]. Returns the blocked flags.
+    /// `MAX_CLIP_PLANES` planes over `MAX_BUMPS` bumps [Ref ?12.1, ?12.2]. Returns the blocked flags.
     pub(crate) fn try_player_move(&mut self) -> u32 {
         let mut blocked = 0u32;
         let mut num_planes = 0usize;
@@ -151,7 +151,7 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         blocked
     }
 
-    /// Compare the plain slide with up-over-down stepping and keep the farther one [Ref §12.3].
+    /// Compare the plain slide with up-over-down stepping and keep the farther one [Ref ?12.3].
     pub(crate) fn step_move(&mut self, dest: Vec3) {
         let _ = dest; // The first trace is recomputed inside try_player_move; results are identical.
         let hull = self.state.hull();

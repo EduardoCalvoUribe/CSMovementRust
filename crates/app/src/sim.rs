@@ -163,12 +163,31 @@ impl Sim {
     }
 }
 
-/// FixedUpdate: build one command from the current input and run it.
-pub fn fixed_tick(mut sim: ResMut<Sim>, angles: Res<ViewAngles>, mut input: ResMut<HeldInput>) {
+/// FixedUpdate: build one command from the current input and run it. With a ghost capture loaded, the
+/// capture's commands drive the sim instead, looping from its recorded start.
+pub fn fixed_tick(
+    mut sim: ResMut<Sim>,
+    mut angles: ResMut<ViewAngles>,
+    mut input: ResMut<HeldInput>,
+    ghost: Option<ResMut<crate::ghost::Ghost>>,
+) {
     if sim.paused && !sim.step_once {
         return;
     }
     sim.step_once = false;
+    if let Some(mut g) = ghost {
+        let cmd = match g.next_cmd() {
+            Some(c) => c,
+            None => {
+                let _ = g.reset(&mut sim);
+                return;
+            }
+        };
+        *angles = ViewAngles { pitch: cmd.view_angles.x, yaw: cmd.view_angles.y };
+        sim.step(cmd);
+        input.consume();
+        return;
+    }
     let cmd = build_cmd(sim.tick, *angles, input.buttons());
     sim.step(cmd);
     input.consume();
