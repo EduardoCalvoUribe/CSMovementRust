@@ -31,6 +31,15 @@ pub struct MoveData {
     pub wish_dir: Vec3,
     pub wish_speed: f32,
     pub accel_budget: f32,
+    // Where this command's moves happened, for mode hooks (MovementAPI's bookkeeping).
+    /// The jump button produced a jump.
+    pub jumped: bool,
+    /// `WalkMove` ran, and the velocity after it.
+    pub walk_moved: bool,
+    pub post_walk_velocity: Vec3,
+    /// `AirAccelerate` ran, and the velocity after it.
+    pub air_accelerated: bool,
+    pub post_aa_velocity: Vec3,
 }
 
 pub(crate) struct Mover<'a, W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> {
@@ -67,7 +76,7 @@ pub fn process_movement<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized>(
         forward_move: cmd.forward_move,
         side_move: cmd.side_move,
         up_move: cmd.up_move,
-        max_speed: cfg.weapon_max_speed,
+        max_speed: mode.player_max_speed(cfg.weapon_max_speed),
         angles: cmd.view_angles,
         ..MoveData::default()
     };
@@ -78,7 +87,7 @@ pub fn process_movement<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized>(
     m.state.old_buttons = m.mv.buttons;
     m.state.tick = m.state.tick.wrapping_add(1);
     let mv = m.mv;
-    mode.post_command(state, &cmd);
+    mode.post_command(state, &cmd, &mv);
     obs.on_cmd_end(state, &cmd);
     mv
 }
@@ -145,6 +154,8 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
 
         if self.state.on_ground() {
             self.walk_move();
+            self.mv.walk_moved = true;
+            self.mv.post_walk_velocity = self.state.velocity;
         } else {
             self.air_move();
         }
@@ -221,7 +232,6 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         if self.state.stamina > 0.0 {
             scale_inputs(&mut self.mv, crate::stamina::speed_scale(self.cfg, self.state.stamina));
         }
-        self.mv.max_speed = self.mode.modify_wish_speed(self.state, self.mv.max_speed);
 
         let spd = self.mv.forward_move * self.mv.forward_move
             + self.mv.side_move * self.mv.side_move

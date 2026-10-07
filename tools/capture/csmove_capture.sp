@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // csmove_capture: input injection and ground-truth logging for CSMovementRust (game-plan.md §9.4).
 //
 // Drives one bot with a recorded command stream and logs a `pre` row (before PlayerRunCommand) and a
@@ -18,7 +19,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.0.0"
+#define PLUGIN_VERSION "1.1.0"
 #define MAX_CMDS 4096
 
 // GOKZ (optional): only the mode is set, so the native is declared here instead of pulling in GOKZ's
@@ -71,6 +72,7 @@ int g_Index;
 int g_Settle;
 int g_Count;
 char g_Name[128];
+char g_ScenarioMap[64];
 char g_Source[PLATFORM_MAX_PATH];
 float g_Origin[3];
 float g_Yaw;
@@ -265,18 +267,18 @@ void StartNext()
 		return;
 	}
 	char name[128], map[64];
-	GetCurrentMap(map, sizeof(map));
-	if (!StrEqual(map, "csmove_capture"))
-	{
-		PrintToServer("[csmove] wrong map %s, aborting batch", map);
-		g_Queue.Clear();
-		g_State = State_Idle;
-		return;
-	}
 	g_Queue.GetString(0, name, sizeof(name));
 	g_Queue.Erase(0);
 	if (!LoadScenario(name))
 	{
+		StartNext();
+		return;
+	}
+	// Scenarios name their map (the test level unless `map` is given in scenario.cfg).
+	GetCurrentMap(map, sizeof(map));
+	if (!StrEqual(map, g_ScenarioMap))
+	{
+		PrintToServer("[csmove] %s is for map %s, server runs %s; skipped", name, g_ScenarioMap, map);
 		StartNext();
 		return;
 	}
@@ -304,6 +306,7 @@ bool LoadScenario(const char[] name)
 	}
 	g_Settle = 1;
 	g_Yaw = 0.0;
+	strcopy(g_ScenarioMap, sizeof(g_ScenarioMap), "csmove_capture");
 	while (f.ReadLine(line, sizeof(line)))
 	{
 		TrimString(line);
@@ -318,6 +321,10 @@ bool LoadScenario(const char[] name)
 		else if (n >= 2 && StrEqual(parts[0], "yaw"))
 		{
 			g_Yaw = StringToFloat(parts[1]);
+		}
+		else if (n >= 2 && StrEqual(parts[0], "map"))
+		{
+			strcopy(g_ScenarioMap, sizeof(g_ScenarioMap), parts[1]);
 		}
 		else if (n >= 2 && StrEqual(parts[0], "settle"))
 		{
@@ -845,7 +852,7 @@ void Finish()
 	f.WriteLine("requested_origin = \"%.6f %.6f %.6f\"", g_Origin[0], g_Origin[1], g_Origin[2]);
 	f.WriteLine("requested_yaw = %.6f", g_Yaw);
 	f.WriteLine("settle = %d", g_Settle);
-	f.WriteLine("geometry = \"testlevel\"");
+	f.WriteLine("geometry = \"%s\"", StrEqual(g_ScenarioMap, "csmove_capture") ? "testlevel" : g_ScenarioMap);
 	delete f;
 
 	PrintToServer("[csmove] %s: wrote %d rows", g_Name, g_Rows.Length);

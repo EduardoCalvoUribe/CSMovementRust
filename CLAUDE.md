@@ -13,7 +13,10 @@ modes, a test level, and a HUD for comparing against the real game.
   in `crates/app`, and stays thin.
 - Do not use Avian, Rapier, or other physics/character-controller crates for movement.
 - All sim math is `f32`. No `f64`, no `mul_add`/FMA, and do not reorder arithmetic to "simplify" it. Operation order
-  is part of the behavior; sub-unit thresholds depend on it.
+  is part of the behavior; sub-unit thresholds depend on it. One allowed exception: the trace end point
+  (`Ray::finish` in `world/primitive.rs`) keeps the sum in `f64` and rounds once, reproducing the 32-bit
+  engine's x87 arithmetic (`docs/divergences.md` D17). Map compilation (`plane_from_points`) and render-only
+  geometry (`Brush::polygons`) are not sim math.
 - Keep one function per Source routine (`check_jump_button`, `categorize_position`, `try_player_move`, ...) and keep
   Source's call order even where it looks redundant [Ref §2].
 - State that crosses commands (stamina, surface friction, duck speed, fall velocity) is a `PlayerState` field,
@@ -21,10 +24,11 @@ modes, a test level, and a HUD for comparing against the real game.
 - Collision goes through the `TraceWorld` trait so primitive brushes and BSP are interchangeable.
 - Modes are config plus hooks over one core, not separate controllers.
 
-## Provenance policy
-The cstrike15 source cited in the reference is an unofficial leak. Implement from the official Source SDK 2013 and
-the reference's descriptions. Do not paste or closely transliterate leaked or GOKZ/MovementAPI code, and check
-those licenses before porting logic. Never commit Valve assets (maps, textures, models, demos).
+## Provenance and licence
+The project is GPL-3.0-or-later (`LICENSE`). The cstrike15 source cited in the reference is an unofficial leak:
+never link it, paste it, or closely transliterate it; implement from the official Source SDK 2013, the reference's
+descriptions and measurements. GOKZ and MovementAPI are GPL-3.0 and may be ported, with credit in the code and
+`docs/modes-notes.md`. Never commit Valve assets or third-party maps (maps, textures, models, demos).
 
 ## Workflow
 - Run cargo from **PowerShell**, not Git Bash: Git Bash resolves GNU `link` ahead of MSVC `link.exe` and linking
@@ -36,6 +40,7 @@ those licenses before porting logic. Never commit Valve assets (maps, textures, 
 - Record each resolved mismatch with the real game in `docs/divergences.md`.
 
 ## Status
-See `game-plan.md` §3 and §8, and `README.md` for verification status. Current: M0–M8 implemented with automated
-gates green (manual M5 playtest pending); §9 capture rig and ghost overlay built and run against CS:GO
-1.38.8.1 (see `docs/verification.md`); M9 (BSP), M10 (triggers) not started.
+See `game-plan.md` §3 and §8, and `README.md` for verification status. Current: M0–M9 implemented with gates
+green (M5 playtested); §9 capture rig and ghost overlay built and run against CS:GO 1.38.8.1 (see
+`docs/verification.md`), including captures on a community KZ map; M10 (triggers) not started. The
+repository will be public.

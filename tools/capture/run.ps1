@@ -5,12 +5,16 @@
 # Starts srcds on a LAN port with the capture map, connects the local CS:GO client (whose input the
 # plugin replaces), lets csmove_capture run `list_<mode>_<tickrate>.txt` and quit, then imports the
 # results with `compare import`. `-Bot` drives a bot instead (rig debugging only).
+# `-MapFile <file.bsp>` runs on another map (copied to the server and the client), for scenarios made
+# with `compare scenarios --bsp`. KZ modes also load GOKZ's jumpstats, whose reports land in the
+# client console log, saved next to the captures as client_console.log.
 param(
     [Parameter(Mandatory)] [string] $Server,
     [Parameter(Mandatory)] [int] $Tickrate,
     [string] $Mode = 'vanilla',
     [Parameter(Mandatory)] [string] $Out,
     [string] $List = '',
+    [string] $MapFile = '',
     [int] $TimeoutMinutes = 60,
     [switch] $Bot,
     [string] $Game = 'D:\SteamLibrary\steamapps\common\Counter-Strike Global Offensive'
@@ -24,7 +28,7 @@ if ($List -eq '') { $List = "list_${Mode}_${Tickrate}.txt" }
 # KZ modes come from GOKZ, which must not be loaded for vanilla runs.
 $plugins = Join-Path $csgo 'addons\sourcemod\plugins'
 $kzOff = Join-Path $plugins 'disabled\gokz'
-$kzFiles = @('gokz-core', 'gokz-mode-vanilla', 'gokz-mode-simplekz', 'gokz-mode-kztimer', 'movementapi')
+$kzFiles = @('gokz-core', 'gokz-mode-vanilla', 'gokz-mode-simplekz', 'gokz-mode-kztimer', 'gokz-jumpstats', 'movementapi')
 function Set-Gokz([bool] $on) {
     foreach ($f in $kzFiles) {
         $live = Join-Path $plugins "$f.smx"
@@ -34,6 +38,15 @@ function Set-Gokz([bool] $on) {
     }
 }
 Set-Gokz ($Mode -ne 'vanilla')
+
+$map = 'csmove_capture'
+if ($MapFile -ne '') {
+    $map = [IO.Path]::GetFileNameWithoutExtension($MapFile)
+    Copy-Item $MapFile (Join-Path $csgo "maps\$map.bsp") -Force
+    Copy-Item $MapFile (Join-Path $Game "csgo\maps\$map.bsp") -Force
+}
+$clientLog = Join-Path $Game 'csgo\console.log'
+if (Test-Path $clientLog) { Remove-Item $clientLog -ErrorAction SilentlyContinue }
 
 $results = Join-Path $data 'results'
 if (Test-Path $results) { Remove-Item -Recurse -Force $results }
@@ -46,7 +59,7 @@ csmove_autobatch $List
 csmove_target $(if ($Bot) { 'bot' } else { 'human' })
 "@
 $srcdsArgs = @('-game', 'csgo', '-console', '-insecure', '-norestart', '-nohltv', '-condebug', '-port', '27115',
-    '-tickrate', "$Tickrate", '+game_type', '0', '+game_mode', '1', '+map', 'csmove_capture')
+    '-tickrate', "$Tickrate", '+game_type', '0', '+game_mode', '1', '+map', $map)
 $log = Join-Path $csgo 'console.log'
 if (Test-Path $log) { Remove-Item $log }
 Write-Host "srcds $($srcdsArgs -join ' ')"
@@ -88,6 +101,7 @@ Select-String -Path $log -Pattern '\[csmove\]' | ForEach-Object { $_.Line } | Se
 
 Push-Location $repo
 & cargo run -q --release -p compare -- import $results $Out
+if (Test-Path $clientLog) { Copy-Item $clientLog (Join-Path $Out 'client_console.log') -Force }
 $ok = $LASTEXITCODE
 Pop-Location
 if ($ok -ne 0) { throw 'import failed' }

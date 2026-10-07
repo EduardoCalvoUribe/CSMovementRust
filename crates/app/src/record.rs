@@ -26,7 +26,7 @@ impl Recorder {
         self.active.is_some()
     }
 
-    pub fn start(&mut self, kind: ModeKind, tickrate: u32, autobhop: bool, start: &PlayerState) {
+    pub fn start(&mut self, kind: ModeKind, tickrate: u32, autobhop: bool, map: Option<&Path>, start: &PlayerState) {
         let mut csv = String::from(
             "tick,origin_x,origin_y,origin_z,vel_x,vel_y,vel_z,ground,move_type,duck_amount,ducked,stamina,\
              surface_friction,fall_velocity,forward_move,side_move,buttons,pitch,yaw\n",
@@ -34,6 +34,7 @@ impl Recorder {
         csv.reserve(1 << 16);
         let mut rec = Recording::new(kind, tickrate, start.clone());
         rec.autobhop = autobhop;
+        rec.map = map.map(|p| p.display().to_string());
         self.active = Some(Active { rec, csv, last: start.clone() });
     }
 
@@ -101,12 +102,12 @@ impl Recorder {
     }
 }
 
-/// Headless check: replay a recording against the test level and compare with the saved final state.
+/// Headless check: replay a recording against its level (the test level, or the map it names) and
+/// compare with the saved final state.
 pub fn check(path: &Path) -> Result<String, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let rec = Recording::from_text(&text)?;
-    let level = crate::level::describe();
-    let world = crate::level::build_world(&level);
+    let world = crate::level::load(rec.map.as_deref().map(Path::new))?.world;
     let end = rec.replay(&world);
     let got = state_fields(&end).join(" ");
     let final_path = path.with_extension("final");

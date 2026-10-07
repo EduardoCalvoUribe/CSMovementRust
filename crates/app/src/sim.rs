@@ -8,9 +8,10 @@ use movement::instrument::{BumpEvent, MoveObserver, Tee};
 use movement::jumpstats::{JumpReport, JumpTracker};
 use movement::pipeline::MoveData;
 use movement::{
-    process_movement, tick_interval, ModeKind, MovementConfig, MovementMode, PlayerState, PrimitiveWorld,
-    TechniqueDetector, TechniqueFlags, UserCmd, Vec3 as SVec3,
+    process_movement, tick_interval, ModeKind, MovementConfig, MovementMode, PlayerState, TechniqueDetector,
+    TechniqueFlags, UserCmd, Vec3 as SVec3,
 };
+use movement::world::World;
 
 use crate::input::{build_cmd, HeldInput, ViewAngles};
 use crate::record::Recorder;
@@ -42,7 +43,7 @@ pub struct Sim {
     pub kind: ModeKind,
     pub mode: Box<dyn MovementMode + Send + Sync>,
     pub cfg: MovementConfig,
-    pub world: PrimitiveWorld,
+    pub world: World,
     pub state: PlayerState,
     pub prev_state: PlayerState,
     pub tickrate: u32,
@@ -67,7 +68,7 @@ pub struct Sim {
 }
 
 impl Sim {
-    pub fn new(world: PrimitiveWorld, spawn: (SVec3, f32)) -> Self {
+    pub fn new(world: World, spawn: (SVec3, f32)) -> Self {
         let kind = ModeKind::Vanilla;
         let mode = kind.create();
         let cfg = *mode.config();
@@ -123,6 +124,18 @@ impl Sim {
         }
         self.recorder.stop_if_recording();
         self.tickrate = rate;
+    }
+
+    /// Switch to another level's collision and start at its spawn. Checkpoints and recordings belong
+    /// to the old level and are dropped.
+    pub fn change_level(&mut self, world: World, spawn: (SVec3, f32)) {
+        self.recorder.stop_if_recording();
+        self.world = world;
+        self.spawn = spawn;
+        self.checkpoint = None;
+        self.last_report = None;
+        self.speed_history.clear();
+        self.teleport(spawn.0);
     }
 
     pub fn teleport(&mut self, origin: SVec3) {

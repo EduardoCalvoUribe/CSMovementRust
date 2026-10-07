@@ -20,6 +20,7 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         let probe = if grounded_walk { self.cfg.ground_probe + self.cfg.step_size } else { self.cfg.ground_probe };
         let point = Vec3::new(origin.x, origin.y, origin.z - probe);
 
+        let mut ground_normal = None;
         let zvel = self.state.velocity.z;
         let moving_up = zvel > 0.0;
         // Ground entities are static, so the moving-ground correction of this test is zero.
@@ -40,9 +41,11 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
                     }
                 } else {
                     self.set_ground_entity(Some(&pm));
+                    ground_normal = Some(pm.plane_normal);
                 }
             } else {
                 self.set_ground_entity(Some(&pm));
+                ground_normal = Some(pm.plane_normal);
             }
             // Still grounded after a grounded walk: snap down to whatever the main probe hit, walkable or
             // not (support may come from a quadrant probe). A probe that starts inside the 1/32 gap has
@@ -60,6 +63,7 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
             motion: self.motion(),
         };
         self.obs.on_categorize(&ev);
+        self.mode.on_categorize(self.state, &self.mv, ground_before.is_some(), ground_normal);
     }
 
     /// Probe with each quarter of the hull footprint, so an edge of a steep surface can't hide shallower

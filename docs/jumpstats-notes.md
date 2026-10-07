@@ -24,8 +24,10 @@ A jumpbug counts as both a landing and a takeoff on the same command.
 - **Raw landing**: the origin at the end of that command.
 - **Corrected landing** [Ref §16]: categorization grounds the player anywhere within the 2-unit probe, so
   the raw origin can hover above the floor. First trace down from the raw origin to find the floor height,
-  then move from the previous command's origin along the velocity the sweep used (start velocity, vertical
-  part minus half a gravity step) until the feet reach it. MovementAPI distinguishes more cases.
+  then move from the previous command's origin along the velocity the sweep used (horizontal velocity
+  after the command's air acceleration, start vertical velocity minus half a gravity step) until the feet
+  reach it. This matches GOKZ 3.6.4's in-game long-jump distances to four decimals (divergences D11);
+  MovementAPI may distinguish more cases than long jumps exercise.
 - **Distance** = horizontal takeoff-to-corrected-landing displacement + 32 (except ladder jumps), the
   reporting convention for hull width [Ref §16]. The HUD also shows the value without the +32 and the raw
   final-command distance.

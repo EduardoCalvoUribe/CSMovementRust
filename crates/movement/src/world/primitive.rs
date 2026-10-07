@@ -31,6 +31,8 @@ pub enum Shape {
     Box { min: Vec3, max: Vec3 },
     /// Occupies the box `min..max`; the slope runs from `min.z` at the low edge to `max.z` at the high edge.
     Wedge { min: Vec3, max: Vec3, rise: RiseDir },
+    /// Any other convex solid (BSP brushes), bounded by `min..max`; its planes are the only description.
+    Convex { min: Vec3, max: Vec3 },
 }
 
 /// An upward-facing plane through three points, built the way the BSP compiler builds brush planes
@@ -80,7 +82,7 @@ pub struct Brush {
 impl Brush {
     pub fn from_shape(shape: Shape) -> Self {
         let (min, max) = match shape {
-            Shape::Box { min, max } | Shape::Wedge { min, max, .. } => (min, max),
+            Shape::Box { min, max } | Shape::Wedge { min, max, .. } | Shape::Convex { min, max } => (min, max),
         };
         let mut planes = vec![
             Plane { normal: Vec3::new(1.0, 0.0, 0.0), dist: max.x },
@@ -119,6 +121,78 @@ impl Brush {
         Self::from_shape(Shape::Wedge { min, max, rise })
     }
 
+    /// A convex solid given by its bounding planes, as a BSP brush is. `min..max` must bound it.
+    pub fn convex(planes: Vec<Plane>, min: Vec3, max: Vec3) -> Self {
+        Self { planes, mins: min, maxs: max, shape: Shape::Convex { min, max }, contents: Contents::Solid, entity: EntityId::WORLD }
+    }
+
+    /// The brush's faces as (outward normal, polygon), by clipping a large quad on each plane against
+    /// all the others. Render and export geometry only, never simulation, so it works in f64 for
+    /// robustness. Bevel planes produce no polygon and are dropped.
+    pub fn polygons(&self) -> Vec<(Vec3, Vec<Vec3>)> {
+        type V = [f64; 3];
+        let dot = |a: V, b: V| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        let cross = |a: V, b: V| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        let norm = |a: V| {
+            let l = dot(a, a).sqrt();
+            [a[0] / l, a[1] / l, a[2] / l]
+        };
+        let planes: Vec<(V, f64)> =
+            self.planes.iter().map(|p| ([p.normal.x as f64, p.normal.y as f64, p.normal.z as f64], p.dist as f64)).collect();
+        let mut out = Vec::new();
+        for (i, &(n, d)) in planes.iter().enumerate() {
+            // Two axes spanning the plane, then a quad far larger than any map.
+            let up = if n[2].abs() < 0.9 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+            let u = norm(cross(up, n));
+            let v = cross(n, u);
+            let c = [n[0] * d, n[1] * d, n[2] * d];
+            let r = 1.0e6;
+            let at = |a: f64, b: f64| [c[0] + u[0] * a + v[0] * b, c[1] + u[1] * a + v[1] * b, c[2] + u[2] * a + v[2] * b];
+            let mut poly: Vec<V> = vec![at(-r, -r), at(r, -r), at(r, r), at(-r, r)];
+            for (j, &(m, e)) in planes.iter().enumerate() {
+                if i == j || poly.is_empty() {
+                    continue;
+                }
+                // Keep the part behind plane j (inside the brush).
+                let mut next = Vec::with_capacity(poly.len() + 1);
+                for k in 0..poly.len() {
+                    let a = poly[k];
+                    let b = poly[(k + 1) % poly.len()];
+                    let da = dot(m, a) - e;
+                    let db = dot(m, b) - e;
+                    if da <= 0.0 {
+                        next.push(a);
+                    }
+                    if (da < 0.0 && db > 0.0) || (da > 0.0 && db < 0.0) {
+                        let t = da / (da - db);
+                        next.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]);
+                    }
+                }
+                poly = next;
+            }
+            // Drop degenerate leftovers (bevels touch the brush only along an edge or a corner).
+            let area = (1..poly.len().saturating_sub(1))
+                .map(|k| {
+                    let a = poly[0];
+                    let e1 = [poly[k][0] - a[0], poly[k][1] - a[1], poly[k][2] - a[2]];
+                    let e2 = [poly[k + 1][0] - a[0], poly[k + 1][1] - a[1], poly[k + 1][2] - a[2]];
+                    dot(cross(e1, e2), cross(e1, e2)).sqrt()
+                })
+                .sum::<f64>();
+            if poly.len() >= 3 && area > 1e-3 {
+                let f = |p: V| Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32);
+                out.push((self.planes[i].normal, poly.into_iter().map(f).collect()));
+            }
+        }
+        out
+    }
+
+    /// Whether a stop on this brush rounds the end point in f32 (axis-aligned box brushes, which the
+    /// engine traces with their own routine; docs/divergences.md D17).
+    pub fn is_box(&self) -> bool {
+        matches!(self.shape, Shape::Box { .. })
+    }
+
     pub fn with_contents(mut self, c: Contents) -> Self {
         self.contents = c;
         self
@@ -126,78 +200,84 @@ impl Brush {
 
     /// Clip a box sweep against this brush, tightening `tr` if this brush is hit earlier. The box is
     /// given as its centre `start`, half-size `extents`, and motion `delta` (Source's `Ray_t`).
-    fn clip_box(&self, start: Vec3, delta: Vec3, extents: Vec3, tr: &mut TraceResult) {
-        let mut enter_frac = -1.0f32;
-        let mut leave_frac = 1.0f32;
-        let mut clip_plane: Option<Vec3> = None;
-        let mut get_out = false;
-        let mut start_out = false;
-
-        for p in &self.planes {
-            // Corner of the box that reaches furthest against the plane normal.
-            let ofs = Vec3::new(
-                if p.normal.x < 0.0 { extents.x } else { -extents.x },
-                if p.normal.y < 0.0 { extents.y } else { -extents.y },
-                if p.normal.z < 0.0 { extents.z } else { -extents.z },
-            );
-            let dist = p.dist - ofs.dot(p.normal);
-            let d1 = start.dot(p.normal) - dist;
-            // From the end point, as Source does; deriving it from d1 plus the projected motion puts slope
-            // contacts a few ULP off (measured, docs/divergences.md D1).
-            let d2 = start.add(delta).dot(p.normal) - dist;
-
-            if d2 > 0.0 {
-                get_out = true;
-            }
-            if d1 > 0.0 {
-                start_out = true;
-            }
-            // Both ends in front of this plane: no contact with the brush. The epsilon only enters the
-            // fraction, so a sweep may end inside the 1/32 gap (measured, docs/divergences.md D2).
-            if d1 > 0.0 && d2 > 0.0 {
-                return;
-            }
-            // Entirely behind this plane: this plane doesn't limit the sweep.
-            if d1 <= 0.0 && d2 <= 0.0 {
-                continue;
-            }
-            if d1 > d2 {
-                let f = ((d1 - DIST_EPSILON) / (d1 - d2)).max(0.0);
-                if f > enter_frac {
-                    enter_frac = f;
-                    clip_plane = Some(p.normal);
-                }
-            } else {
-                let f = ((d1 + DIST_EPSILON) / (d1 - d2)).min(1.0);
-                if f < leave_frac {
-                    leave_frac = f;
-                }
-            }
-        }
-
-        if !start_out {
-            tr.start_solid = true;
-            if !get_out {
-                tr.all_solid = true;
-                tr.fraction = 0.0;
-                tr.hit_entity = Some(self.entity);
-            }
-            return;
-        }
-        if enter_frac < leave_frac && enter_frac > -1.0 && enter_frac < tr.fraction {
-            tr.fraction = enter_frac.max(0.0);
-            tr.plane_normal = clip_plane.unwrap_or(Vec3::ZERO);
-            tr.hit_entity = Some(self.entity);
-        }
+    pub(crate) fn clip_box(&self, start: Vec3, delta: Vec3, extents: Vec3, tr: &mut TraceResult) {
+        clip_box_to_planes(&self.planes, self.entity, start, delta, extents, tr);
     }
 
-    fn may_touch(&self, lo: Vec3, hi: Vec3) -> bool {
+    pub(crate) fn may_touch(&self, lo: Vec3, hi: Vec3) -> bool {
         lo.x <= self.maxs.x
             && hi.x >= self.mins.x
             && lo.y <= self.maxs.y
             && hi.y >= self.mins.y
             && lo.z <= self.maxs.z
             && hi.z >= self.mins.z
+    }
+}
+
+/// Clip a box sweep against the convex solid bounded by `planes`, tightening `tr` if it is hit earlier.
+/// The box is given as its centre `start`, half-size `extents`, and motion `delta` (Source's `Ray_t`).
+pub(crate) fn clip_box_to_planes(planes: &[Plane], entity: EntityId, start: Vec3, delta: Vec3, extents: Vec3, tr: &mut TraceResult) {
+    let mut enter_frac = -1.0f32;
+    let mut leave_frac = 1.0f32;
+    let mut clip_plane: Option<Vec3> = None;
+    let mut get_out = false;
+    let mut start_out = false;
+
+    for p in planes {
+        // Corner of the box that reaches furthest against the plane normal.
+        let ofs = Vec3::new(
+            if p.normal.x < 0.0 { extents.x } else { -extents.x },
+            if p.normal.y < 0.0 { extents.y } else { -extents.y },
+            if p.normal.z < 0.0 { extents.z } else { -extents.z },
+        );
+        let dist = p.dist - ofs.dot(p.normal);
+        let d1 = start.dot(p.normal) - dist;
+        // From the end point, as Source does; deriving it from d1 plus the projected motion puts slope
+        // contacts a few ULP off (measured, docs/divergences.md D1).
+        let d2 = start.add(delta).dot(p.normal) - dist;
+
+        if d2 > 0.0 {
+            get_out = true;
+        }
+        if d1 > 0.0 {
+            start_out = true;
+        }
+        // Both ends in front of this plane: no contact with the brush. The epsilon only enters the
+        // fraction, so a sweep may end inside the 1/32 gap (measured, docs/divergences.md D2).
+        if d1 > 0.0 && d2 > 0.0 {
+            return;
+        }
+        // Entirely behind this plane: this plane doesn't limit the sweep.
+        if d1 <= 0.0 && d2 <= 0.0 {
+            continue;
+        }
+        if d1 > d2 {
+            let f = ((d1 - DIST_EPSILON) / (d1 - d2)).max(0.0);
+            if f > enter_frac {
+                enter_frac = f;
+                clip_plane = Some(p.normal);
+            }
+        } else {
+            let f = ((d1 + DIST_EPSILON) / (d1 - d2)).min(1.0);
+            if f < leave_frac {
+                leave_frac = f;
+            }
+        }
+    }
+
+    if !start_out {
+        tr.start_solid = true;
+        if !get_out {
+            tr.all_solid = true;
+            tr.fraction = 0.0;
+            tr.hit_entity = Some(entity);
+        }
+        return;
+    }
+    if enter_frac < leave_frac && enter_frac > -1.0 && enter_frac < tr.fraction {
+        tr.fraction = enter_frac.max(0.0);
+        tr.plane_normal = clip_plane.unwrap_or(Vec3::ZERO);
+        tr.hit_entity = Some(entity);
     }
 }
 
@@ -223,17 +303,60 @@ impl PrimitiveWorld {
         w
     }
 
-    /// Source traces a hull as a box centred on `origin + (mins + maxs) / 2` and converts the end point
-    /// back by subtracting that offset (`Ray_t::Init`, public SDK `cmodel.h`). The arithmetic happens at
-    /// the centre's magnitude, so its rounding is part of the behavior: a resting player at
-    /// z = 0.03124994 comes back from any trace at exactly 0.03125 (see docs/divergences.md).
     fn trace(&self, start: Vec3, end: Vec3, hull: Hull, contents: Contents) -> TraceResult {
+        let ray = Ray::new(start, end, hull);
         let mut tr = TraceResult::empty(end);
+        let (lo, hi) = ray.bounds(start, end, hull);
+        let mut hit_box = false;
+        for b in &self.brushes {
+            if !contents.selects(b.contents) || !b.may_touch(lo, hi) {
+                continue;
+            }
+            let before = tr.fraction;
+            b.clip_box(ray.start, ray.delta, ray.extents, &mut tr);
+            if tr.fraction < before {
+                hit_box = b.is_box();
+            }
+            if tr.all_solid {
+                break;
+            }
+        }
+        ray.finish(&mut tr, hit_box);
+        tr
+    }
+}
+
+impl Contents {
+    /// Whether a trace for `self` collides with a brush of contents `brush`. Ladder brushes block the
+    /// player as well as marking the ladder (CS:GO's invisible-ladder brushes are player-solid;
+    /// measured, docs/divergences.md D9).
+    pub(crate) fn selects(self, brush: Contents) -> bool {
+        brush == self || (self == Contents::Solid && brush == Contents::Ladder)
+    }
+}
+
+/// A hull sweep in Source's `Ray_t` form: the box is traced from its centre, `origin + (mins + maxs) / 2`,
+/// and the end point is converted back by subtracting that offset (public SDK `cmodel.h`). The arithmetic
+/// happens at the centre's magnitude, so its rounding is part of the behavior: a resting player at
+/// z = 0.03124994 comes back from any trace at exactly 0.03125 (see docs/divergences.md).
+pub(crate) struct Ray {
+    pub start: Vec3,
+    pub delta: Vec3,
+    pub extents: Vec3,
+    /// Centre to origin: `-(mins + maxs) / 2`.
+    pub offset: Vec3,
+}
+
+impl Ray {
+    pub fn new(start: Vec3, end: Vec3, hull: Hull) -> Self {
         let delta = end.sub(start);
         let extents = hull.maxs.sub(hull.mins).scale(0.5);
         let start_offset = hull.mins.add(hull.maxs).scale(0.5);
-        let ray_start = start.add(start_offset);
-        let start_offset = start_offset.scale(-1.0);
+        Self { start: start.add(start_offset), delta, extents, offset: start_offset.scale(-1.0) }
+    }
+
+    /// Origin-space bounds of the whole sweep, one unit larger on every side.
+    pub fn bounds(&self, start: Vec3, end: Vec3, hull: Hull) -> (Vec3, Vec3) {
         let margin = 1.0;
         let lo = Vec3::new(
             start.x.min(end.x) + hull.mins.x - margin,
@@ -245,29 +368,16 @@ impl PrimitiveWorld {
             start.y.max(end.y) + hull.maxs.y + margin,
             start.z.max(end.z) + hull.maxs.z + margin,
         );
-        let mut hit_box = false;
-        for b in &self.brushes {
-            // Ladder brushes block the player as well as marking the ladder (CS:GO's invisible-ladder
-            // brushes are player-solid; measured, docs/divergences.md D9).
-            let wanted = b.contents == contents || (contents == Contents::Solid && b.contents == Contents::Ladder);
-            if !wanted || !b.may_touch(lo, hi) {
-                continue;
-            }
-            let before = tr.fraction;
-            b.clip_box(ray_start, delta, extents, &mut tr);
-            if tr.fraction < before {
-                hit_box = matches!(b.shape, Shape::Box { .. });
-            }
-            if tr.all_solid {
-                break;
-            }
-        }
-        // VectorMA(m_Start, fraction, m_Delta), then back from the box centre to the origin. Which
-        // arithmetic the engine uses depends on what ended the sweep: a stop on an axis-aligned box brush
-        // (BSP "box brushes", traced by their own routine) rounds in f32; a stop on a general brush, or no
-        // stop at all, keeps the sum in extended precision (32-bit x87) and rounds once. Both measured bit
-        // for bit (docs/divergences.md D17). The extended branch is the one place collision arithmetic is
-        // wider than f32.
+        (lo, hi)
+    }
+
+    /// VectorMA(m_Start, fraction, m_Delta), then back from the box centre to the origin. Which
+    /// arithmetic the engine uses depends on what ended the sweep: a stop on an axis-aligned box brush
+    /// (BSP "box brushes", traced by their own routine) rounds in f32; a stop on a general brush, or no
+    /// stop at all, keeps the sum in extended precision (32-bit x87) and rounds once. Both measured bit
+    /// for bit (docs/divergences.md D17). The extended branch is the one place collision arithmetic is
+    /// wider than f32.
+    pub fn finish(&self, tr: &mut TraceResult, hit_box: bool) {
         let frac = tr.fraction;
         let end = |c: f32, d: f32, o: f32| {
             if hit_box && frac < 1.0 {
@@ -277,11 +387,10 @@ impl PrimitiveWorld {
             }
         };
         tr.end_pos = Vec3::new(
-            end(ray_start.x, delta.x, start_offset.x),
-            end(ray_start.y, delta.y, start_offset.y),
-            end(ray_start.z, delta.z, start_offset.z),
+            end(self.start.x, self.delta.x, self.offset.x),
+            end(self.start.y, self.delta.y, self.offset.y),
+            end(self.start.z, self.delta.z, self.offset.z),
         );
-        tr
     }
 }
 

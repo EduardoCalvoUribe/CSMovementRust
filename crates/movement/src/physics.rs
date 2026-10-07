@@ -211,6 +211,7 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
     /// `AirAccelerate` [Ref ?6, ?7].
     fn air_accelerate(&mut self, wish_dir: Vec3, wish_speed: f32) {
         let before = self.motion();
+        let wish_speed = self.mode.air_wish_speed(wish_speed);
         let (v, budget) = air_accelerate(
             self.cfg,
             self.state.velocity,
@@ -221,6 +222,8 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         );
         let delta = v.sub(self.state.velocity);
         self.state.velocity = v;
+        self.mv.air_accelerated = true;
+        self.mv.post_aa_velocity = v;
         self.mv.out_wish_vel = self.mv.out_wish_vel.add(delta);
         self.mv.accel_budget = budget;
         let ev = AccelEvent {

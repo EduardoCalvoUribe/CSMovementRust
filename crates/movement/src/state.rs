@@ -31,6 +31,9 @@ pub struct PlayerState {
     pub duck_amount: f32,
     /// Rate at which duck_amount moves; reduced by duck spam [Ref §10.3].
     pub duck_speed: f32,
+    /// Origin at the start of the last command that ended with full duck speed; moving far from it
+    /// speeds up duck speed recovery (docs/divergences.md D14).
+    pub duck_speed_anchor: Vec3,
     /// The duck hull is in use (`FL_DUCKING` / `m_bDucked`).
     pub ducked: bool,
     /// A duck or unduck transition is in progress (`m_bDucking`).
@@ -56,6 +59,7 @@ impl PlayerState {
             stamina: 0.0,
             duck_amount: 0.0,
             duck_speed: 8.0,
+            duck_speed_anchor: origin,
             ducked: false,
             ducking: false,
             fall_velocity: 0.0,

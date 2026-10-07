@@ -56,8 +56,15 @@ The §9 rig is built and has been run (V0–V7): `tools/capture` (server plugin,
 `tools/compare` (map and scenario export, import, diff, reports, promotion), the in-app ghost overlay, and
 about 160 vanilla captures at 64 and 128 tick on CS:GO 1.38.8.1, with 42 promoted to regression tests.
 Results are in `README.md` and `docs/verification.md`; the mismatches they exposed were fixed and are
-recorded in `docs/divergences.md`. Not done: M9 and M10. The GOKZ mode hooks are designs from [Ref §20], not ports (see
+recorded in `docs/divergences.md`. The KZTimer and SimpleKZ modes are ported from GOKZ 3.6.4 (GPL-3.0; see
 `docs/modes-notes.md`). Unverified choices are listed in `docs/divergences.md`.
+
+M9 is implemented: `world/bsp.rs` parses Source BSP 19-21 (brushes with their compiled bevels, the node
+tree, brush entities, displacements, entities) and traces through the node tree with the primitive
+world's per-brush clipping. The app keeps the test level as the default and opens a map browser on `M`
+(`--map` on the command line). Every capture replays with the same verdict on the compiled test map
+through the BSP backend, and long jumps captured on a community KZ map are compared in
+`docs/verification.md`. Not done: M10 (triggers).
 
 ## 4. Environment setup (do first)
 
@@ -398,7 +405,7 @@ Gate: green `cargo test`.
   panel, CSV export, and the in-app ghost overlay (§9.6).
 - Gate: S19 long-jump captures meet the §9.9 criteria, and the status table in `README.md` is filled in.
 
-### M9 (stretch): BSP and real maps
+### M9 (stretch): BSP and real maps — implemented (see §3 and `docs/verification.md`)
 - BSP v20 parser, brush trace via the shared brush-clipping routine, entity lumps for ladders/triggers/teleports,
   displacement collision, then run community surf and KZ maps.
 - Gate: a known KZ map's long jump block distances match the in-game jumpstats for the same recorded input.
@@ -654,11 +661,11 @@ Practical policy for this project:
 
 - Use the **official Source SDK 2013** [S1] and the behavior in the reference doc as the implementation source.
 - Treat the leaked CS-specific files as a *behavior reference* for checking understanding. Write our own code and
-  do not paste or closely transliterate it. Commit nothing derived from verbatim text.
-- Do not commit Valve maps, textures, models, or binaries. Test level assets are generated.
-- GOKZ/MovementAPI/RNGFix are open source under their own licenses. Check each license before porting any logic
-  or distributing, and credit them. The mode notes and comparison tooling should cite them.
-- If you plan to publish the repository, decide the policy above before the first public commit.
+  do not paste or closely transliterate it. Commit nothing derived from verbatim text, and don't link the leak
+  (the reference cites it by file name only).
+- Do not commit Valve maps, textures, models, or binaries, or third-party maps. Test level assets are generated.
+- Decided: the repository is public and licensed GPL-3.0-or-later, so GOKZ and MovementAPI (GPL-3.0) logic
+  is ported with credit (`docs/modes-notes.md`). RNGFix is GPL-3.0 too if M10 needs it.
 
 ## 11. Testing strategy
 
@@ -696,8 +703,8 @@ Practical policy for this project:
    [Ref §5.2] or just a selectable max speed. Default plan: a selectable max-speed value, with the scoped
    branch implemented but not exposed.
 4. **Level format:** Rust consts are fine for M5; consider RON when the level grows.
-5. **BSP (M9):** is it a real goal or should the project stop at the test level?
-6. **Publishing:** public repo or private? Drives §10.
+5. **BSP (M9):** decided: a real goal, implemented; the test level stays the default.
+6. **Publishing:** decided: the repository will be public. §10 applies as written.
 
 ## 14. Immediate next steps
 

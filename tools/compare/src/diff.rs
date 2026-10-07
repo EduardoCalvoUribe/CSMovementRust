@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 use movement::instrument::NullObserver;
 use movement::state::MoveType;
 use movement::trace::EntityId;
-use movement::{process_movement, tick_interval, PlayerState, PrimitiveWorld, Vec3};
+use movement::{process_movement, tick_interval, PlayerState, TraceWorld, Vec3};
 
 use crate::capture::{from_source_buttons, Capture, Row, MOVETYPE_LADDER};
 
@@ -318,12 +318,14 @@ pub enum Sync {
 
 /// Replay and diff. `shift` delays our command stream by that many ticks (phase check, plan §9.7 step 4;
 /// the first `shift` commands are empty).
-pub fn run(cap: &Capture, world: &PrimitiveWorld, sync: Sync, shift: u32, tol: Tolerance) -> Result<RunResult, String> {
+pub fn run(cap: &Capture, world: &impl TraceWorld, sync: Sync, shift: u32, tol: Tolerance) -> Result<RunResult, String> {
     let cfg = cap.config()?;
     let mut mode = cap.mode()?.create();
     let dt = tick_interval(cap.tickrate()?);
     let template = PlayerState::new(Vec3::ZERO);
     let mut state = state_from_row(&cap.pre[0], &template);
+    // Not logged: assume duck speed was last full where the capture starts.
+    state.duck_speed_anchor = state.origin;
     let unavailable = cap.unavailable();
 
     let mut stats: Vec<(&'static str, ColumnStats)> = COLUMNS.iter().map(|c| (*c, ColumnStats::default())).collect();

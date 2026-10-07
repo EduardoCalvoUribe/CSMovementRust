@@ -4,22 +4,23 @@ use bevy::prelude::*;
 use movement::ModeKind;
 
 use crate::input::ViewAngles;
-use crate::level::Level;
+use crate::level::CurrentLevel;
 use crate::sim::Sim;
 
-#[derive(Resource)]
-pub struct LevelInfo(pub Level);
-
 pub const HELP: &str = "F1/F2/F3 mode  T 64/128  R spawn  F6 save  F7 load  H autohop  G debug  F5 record  \
-P pause  . step  1-9 areas  LMB grab  Esc release";
+P pause  . step  1-9 areas  M maps  LMB grab  Esc release";
 
 pub fn hotkeys(
     keys: Res<ButtonInput<KeyCode>>,
     mut sim: ResMut<Sim>,
     mut angles: ResMut<ViewAngles>,
-    level: Res<LevelInfo>,
+    level: Res<CurrentLevel>,
+    menu: Res<crate::maps::MapMenu>,
     ghost: Option<ResMut<crate::ghost::Ghost>>,
 ) {
+    if menu.open {
+        return;
+    }
     if let Some(mut g) = ghost {
         // A ghost run owns the sim: R restarts the capture; mode and teleport keys are ignored.
         if keys.just_pressed(KeyCode::KeyR) {
@@ -83,7 +84,7 @@ pub fn hotkeys(
         } else {
             let (kind, rate, auto, start) = (sim.kind, sim.tickrate, sim.autohop, sim.state.clone());
             sim.discarded_time_events = 0;
-            sim.recorder.start(kind, rate, auto, &start);
+            sim.recorder.start(kind, rate, auto, level.path.as_deref(), &start);
         }
     }
     let digits = [
@@ -99,7 +100,7 @@ pub fn hotkeys(
     ];
     for (i, key) in digits.into_iter().enumerate() {
         if keys.just_pressed(key) {
-            if let Some(area) = level.0.areas.get(i) {
+            if let Some(area) = level.areas.get(i) {
                 sim.teleport(area.spawn);
                 *angles = ViewAngles { pitch: 0.0, yaw: area.yaw };
                 info!("teleport: {}", area.name);

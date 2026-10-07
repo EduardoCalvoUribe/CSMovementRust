@@ -7,6 +7,7 @@
 //! mode Vanilla
 //! tickrate 64
 //! autobhop 0
+//! map <path to the .bsp>            (optional; absent means the test level)
 //! state <PlayerState fields, see `state_fields`>
 //! cmd <tick> <forward> <side> <up> <buttons> <pitch> <yaw> <roll>
 //! ```
@@ -25,13 +26,15 @@ pub struct Recording {
     pub tickrate: u32,
     /// Config autobhop flag in effect for the whole recording.
     pub autobhop: bool,
+    /// The BSP map the recording was made on, or `None` for the test level.
+    pub map: Option<String>,
     pub start: PlayerState,
     pub cmds: Vec<UserCmd>,
 }
 
 impl Recording {
     pub fn new(mode: ModeKind, tickrate: u32, start: PlayerState) -> Self {
-        Self { mode, tickrate, autobhop: false, start, cmds: Vec::new() }
+        Self { mode, tickrate, autobhop: false, map: None, start, cmds: Vec::new() }
     }
 
     /// Replay from the start state with a fresh mode, calling `per_tick` after every command.
@@ -93,6 +96,7 @@ impl Recording {
         let mut mode = None;
         let mut tickrate = None;
         let mut autobhop = false;
+        let mut map = None;
         let mut start = None;
         let mut cmds = Vec::new();
         for line in lines {
@@ -108,6 +112,7 @@ impl Recording {
                 }
                 Some("tickrate") => tickrate = Some(p.next().ok_or("tickrate")?.parse::<u32>().map_err(|e| e.to_string())?),
                 Some("autobhop") => autobhop = p.next() == Some("1"),
+                Some("map") => map = line.trim_start().strip_prefix("map").map(|m| m.trim().to_string()),
                 Some("state") => start = Some(parse_state(&p.collect::<Vec<_>>())?),
                 Some("cmd") => {
                     let f: Vec<&str> = p.collect();
@@ -131,6 +136,7 @@ impl Recording {
             mode: mode.ok_or("missing mode")?,
             tickrate: tickrate.ok_or("missing tickrate")?,
             autobhop,
+            map,
             start: start.ok_or("missing state")?,
             cmds,
         })
@@ -169,12 +175,14 @@ pub fn state_fields(s: &PlayerState) -> Vec<String> {
     f.push(hex(s.fall_velocity));
     f.extend(vec_fields(s.ladder_normal));
     f.push(hex(s.ladder_jump_ignore));
+    f.extend(vec_fields(s.duck_speed_anchor));
     f
 }
 
 fn parse_state(f: &[&str]) -> Result<PlayerState, String> {
-    if f.len() != 24 {
-        return Err(format!("state needs 24 fields, got {}", f.len()));
+    // 24 fields predate the duck speed anchor, which then starts at the origin.
+    if f.len() != 24 && f.len() != 27 {
+        return Err(format!("state needs 27 fields, got {}", f.len()));
     }
     let v = |i: usize| -> Result<Vec3, String> { Ok(Vec3::new(unhex(f[i])?, unhex(f[i + 1])?, unhex(f[i + 2])?)) };
     let b = |i: usize| f[i] == "1";
@@ -195,5 +203,6 @@ fn parse_state(f: &[&str]) -> Result<PlayerState, String> {
         fall_velocity: unhex(f[19])?,
         ladder_normal: v(20)?,
         ladder_jump_ignore: unhex(f[23])?,
+        duck_speed_anchor: if f.len() == 27 { v(24)? } else { v(1)? },
     })
 }

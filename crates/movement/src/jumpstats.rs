@@ -226,9 +226,12 @@ impl JumpTracker {
     }
 
     /// Estimate where the feet reached the floor during the landing command [Ref §16]. Grounding can
-    /// happen up to the 2-unit probe above the floor, so first find the floor height under the final origin,
-    /// then move from the previous origin along the velocity the sweep used (start velocity, vertical part
-    /// minus half a gravity step) until the feet reach it.
+    /// happen up to the 2-unit probe above the floor, so first find the resting height under the final
+    /// origin (1/32 above the floor), then move from the previous origin along the velocity the sweep
+    /// used until the feet reach it: the horizontal velocity after this command's air acceleration
+    /// (landing zeroes only the vertical part) and the start vertical velocity minus half a gravity step.
+    /// This reproduces GOKZ 3.6.4's reported long-jump distances to all four printed decimals on
+    /// kz_longjumps_v4096 (docs/divergences.md D11).
     fn corrected_landing(world: &dyn TraceWorld, before: &PlayerState, after: &PlayerState, gravity: f32, dt: f32) -> Vec3 {
         let raw = after.origin;
         let down = Vec3::new(raw.x, raw.y, raw.z - 2.0 * crate::config::MovementConfig::vanilla().ground_probe);
@@ -239,7 +242,7 @@ impl JumpTracker {
             return Vec3::new(raw.x, raw.y, floor_z);
         }
         let t = ((floor_z - before.origin.z) / vz).max(0.0);
-        Vec3::new(before.origin.x + before.velocity.x * t, before.origin.y + before.velocity.y * t, floor_z)
+        Vec3::new(before.origin.x + after.velocity.x * t, before.origin.y + after.velocity.y * t, floor_z)
     }
 
     fn finish(

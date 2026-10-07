@@ -2,6 +2,7 @@
 name = "compare"
 version = "0.1.0"
 edition = "2021"
+license = "GPL-3.0-or-later"
 description = "Capture rig tooling (plan §9): map and scenario generation, capture import, comparison"
 
 [[bin]]

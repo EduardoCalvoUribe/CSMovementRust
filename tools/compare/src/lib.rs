@@ -47,6 +47,18 @@ pub fn world() -> movement::PrimitiveWorld {
     testlevel::build_world(&testlevel::describe())
 }
 
+/// The world captures replay on: the test level as primitive brushes, or with `bsp` the compiled
+/// test map (`csmove_capture.bsp`) through the BSP backend, which cross-checks BSP collision (M9).
+pub fn load_world(bsp: Option<&Path>) -> Result<movement::world::World, String> {
+    match bsp {
+        None => Ok(world().into()),
+        Some(p) => {
+            let bytes = std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?;
+            Ok(movement::world::BspMap::parse(&bytes)?.world.into())
+        }
+    }
+}
+
 /// Capture folders directly under `root` (folders holding a `states.csv`).
 pub fn capture_dirs(root: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(root)

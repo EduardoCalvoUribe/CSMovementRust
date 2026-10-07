@@ -27,9 +27,12 @@ tick the server lets the hull end about 0.0004 from the slope and slides on from
 velocity zeroed) where the server slid. This one change took the 128-tick failures from 24 to 3 and made
 a separate "ignore a re-hit of the plane just clipped against" rule unnecessary.
 
-### D3. Brush bevels are axial only (unverified)
-Brushes carry their six axial bounding planes as bevels, exact for boxes and for wedges extruded along an
-axis (all the test level uses). Arbitrary convex brushes also need edge bevels; relevant for M9 (BSP).
+### D3. Brush bevels (resolved for BSP maps)
+Primitive brushes carry their six axial bounding planes as bevels, exact for boxes and for wedges
+extruded along an axis (all the test level uses). BSP maps (M9) use each brush's sides exactly as the
+compiler wrote them, including vbsp's axial and edge bevels, so arbitrary convex brushes are exact
+there. Checked by replaying every capture on the compiled test map through the BSP backend: the same
+verdict for all 156 captures (D18).
 
 ### D4. Grounded categorization probes a step further and snaps (resolved)
 For a player who was already grounded and walking, `CategorizePosition` probes `2 + step_size` units
@@ -114,12 +117,23 @@ scenario jumps mid-unduck yet.
   84.99999); during the transition it is the literal 0.34 (85.0). Both are bit-exact in the crouch-walk
   captures at 64 and 128 tick.
 
-### D14. Duck speed recovers three times faster mid-air in S17 at 64 tick (open)
-In both 64-tick runs of `S17-jumpbug-256` and `S17-duckbug-256`, duck speed recovers by 0.140625 per
-command instead of 0.046875 from tick 38 until it reaches 8, while the player is airborne, crouched and
-holding duck. Every other column, the event sequence and the technique outcome match; the same scenarios
-at 128 tick don't show it, and no other capture does. Cause unknown (it isn't timing: it happens on the
-same tick in two sessions). It affects only the speed of a later duck transition.
+### D14. Duck speed recovers three times faster away from where it was last full (resolved)
+`S17-jumpbug-256` and `S17-duckbug-256` at 64 tick showed duck speed recovering by 0.140625 per command
+(9 per second) instead of 0.046875 for a stretch of the fall. Ten probe captures (`D14-*`, each varying
+one factor of S17) isolated the trigger:
+- not the place (it happens on the flat floor), not held keys (forward or none), not time since the
+  jump (a later duck press moves the onset by the same amount);
+- it needs horizontal movement: a standing jump never shows it, and a 30 unit/s crouch-jump (S14) has
+  recovered before it could;
+- the onset is when the horizontal distance between the origin at the start of the command and the
+  origin at the start of the last command that ended with full duck speed (8) exceeds 64 units. This
+  fits every probe exactly: 198 u/s (`D14-flat`, `-late`, `-flatw`), 250 u/s (`D14-run`), 130 u/s
+  (`D14-walk`, which rules out "60 units from the press"), and a decelerating ground slide
+  (`D14-slide`, which rules out the distance actually travelled since the press);
+- recovery then runs at 9 per second until duck speed is full again, where the anchor resets.
+It applies on the ground and in the air. `Duck` now keeps that anchor in `PlayerState` and picks the
+rate before recovering; both S17 captures at 64 tick are bit-exact and promoted with three probes.
+The 128-tick S17 captures never moved 64 units with reduced duck speed, which is why they didn't show it.
 
 ## Speed and acceleration
 
@@ -137,23 +151,59 @@ and ducking on ladders are not exercised.
 
 ## Modes
 
-### D10. KZ modes against GOKZ 3.6.4 (partly resolved, prestrafe open)
-The GOKZ sources were not read (see `modes-notes.md`); the hooks are our own designs reproducing the
-reference's numbers. Captured at 128 tick (`docs/verification.md`): jumps, perfect bhops and long jumps
-match in both modes (most bit-exact). One measured fix: on a perfect bhop SimpleKZ moves the takeoff onto
-the ground under the player instead of jumping from where the landing left them hovering inside the
-ground probe (`S7_simplekz_128` tick 223); the mode's jump hook now receives the ground height and does
-that. **Open:** the prestrafe curves differ from the first turning command (`S20-*_kztimer_128`,
-`S20-*_simplekz_128`); exact agreement needs GOKZ's GPL-3.0 algorithms, which is a licensing decision.
-KZTimer at 64 tick has no GOKZ counterpart (GOKZ 3.6.4 keeps the player in Vanilla at 64 tick).
+### D10. KZ modes against GOKZ 3.6.4 (resolved by porting GOKZ)
+Our first KZ hooks were designs from the reference's numbers. Captures at 128 tick matched jumps, bhops
+and long jumps, but not prestrafe: both modes diverged from the first turning command (`S20-*`), and on
+the first grounded command after a fast long-jump landing (`M9-lj-*`) our hooks cut speed to 250 where
+GOKZ left 250.45. With the project now GPL-3.0, both modes are ported from GOKZ 3.6.4 and MovementAPI
+2.4.4 (`docs/modes-notes.md`). Results: `S20-a/b` in both modes WITHIN_EPS with every horizontal column
+bit-exact (the one landing `origin_z` tick is the open landing difference below); the `M9-lj-*` runs
+BIT_EXACT end to end; no other KZ capture got worse. The 250.45 came from GOKZ reading the previous
+command's strafe key and turn on the command after landing and adding two 0.0009 increments.
+Also found in the GOKZ source: KZTimer, like SimpleKZ, runs only at 128 tick, which is why GOKZ kept the
+player in Vanilla at 64 tick during capture.
+
+## BSP maps (M9)
+
+### D18. BSP collision against the primitive world and the real game (resolved for brushes)
+The BSP backend walks the node tree (near side first, without the engine's fraction-based early out)
+and clips each candidate brush with the primitive world's routine; axis-aligned six-sided brushes take
+the box-brush end-point rounding of D17. Replaying every capture on `csmove_capture.bsp` (the compiled
+test level) gives the same verdict for all 77 captures at 64 tick and 79 at 128 tick, and the same
+BIT_EXACT counts (47 and 42), so tree order, plane order within a brush and box-brush detection don't
+change any result there. The test map's ladder brush has contents `LADDER | TRANSLUCENT | GRATE`; GRATE
+is in `MASK_PLAYERSOLID`, which is why ladders block the player (D9).
+
+### D19. Displacements, props and surfaces (unverified)
+- Displacement collision is our own swept box against each triangle (both faces, the edge planes, and
+  every box-triangle separating axis as bevels). The engine's displacement trace is a separate routine
+  (`CDispCollTree`) whose epsilons and end-point rounding we haven't measured; no capture covers a
+  displacement yet. The split diagonal of each quad (a checkerboard) is also unverified.
+- Displacement vertices are laid out from the corner nearest `startPosition`, rows toward the next
+  corner. On de_dust2 this layout makes 23% more vertices coincide between neighbouring displacements
+  than the transposed one, which is the check it rests on.
+- Static props are not solid, materials' surface properties (friction) are not read, brush entities are
+  solid only at their spawn position, and triggers do nothing (M10).
+
+### D20. No `CheckStuck` (open, out of the movement path we compare)
+A player whose hull starts exactly touching a wall is inside solid for both of us (exact contact counts
+as inside, as in brush tracing), and neither moves. The engine then runs SDK 2013's `CheckStuck`, which
+periodically tries small offsets from a fixed table and moves the player to the first free one:
+`M9-lj-0_vanilla_64` (a runway start with the hull touching kz_longjumps_v4096's back wall) stays put
+for 36 commands and is then nudged 0.125 units sideways and dropped onto the floor. We don't model
+`CheckStuck`; the scenario now starts one unit off the wall. Normal play never starts inside solid.
 
 ## Measurement
 
-### D11. Landing-origin correction (unverified)
-`jumpstats` reconstructs the landing point by moving from the previous command's origin along the velocity
-the sweep used until the feet reach the final height; MovementAPI's correction distinguishes more cases
-[Ref §16]. The movement of the long jumps themselves is verified (`S19`), the jump-stat distance
-reported in game is not compared.
+### D11. Landing-origin correction (resolved against GOKZ)
+`jumpstats` reconstructs the landing point by moving from the landing command's start origin along the
+velocity its sweep used (horizontal velocity after that command's air acceleration, vertical velocity
+minus half a gravity step) until the feet reach the resting height under the final origin, 1/32 above
+the floor; takeoff is the jump command's start origin; long jumps add 32. Fitted to GOKZ 3.6.4's
+in-game reports, not taken from its code: on kz_longjumps_v4096 at 128 tick, six long jumps in KZTimer
+and SimpleKZ (`M9-lj-*`) report 266.6992 (one 266.6991) in game and 266.6992 from our tracker, on our
+own replay and on the captured trajectory alike. Using the horizontal velocity from before the air
+acceleration, as we did, gave 266.6093. Other jump types (bhops, ladder jumps) are not compared yet.
 
 ## Remaining small differences (open)
 After the fixes above, the captures that are WITHIN_EPS rather than WITHIN_ULP are off on one or two

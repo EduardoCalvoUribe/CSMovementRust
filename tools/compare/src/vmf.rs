@@ -65,6 +65,7 @@ pub fn faces(shape: Shape) -> Vec<(Vec3, Vec<Vec3>)> {
                 })
                 .collect()
         }
+        Shape::Convex { .. } => panic!("the test level is built from boxes and wedges only"),
     }
 }
 

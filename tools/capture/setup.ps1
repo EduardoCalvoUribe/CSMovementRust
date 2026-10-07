@@ -43,7 +43,7 @@ $ok = $LASTEXITCODE
 Pop-Location
 if ($ok -ne 0) { throw 'spcomp failed' }
 
-# 2b. GOKZ (only the core and the three modes) and MovementAPI, for the per-mode scenarios (plan §9.5
+# 2b. GOKZ (the core, the three modes and jumpstats) and MovementAPI, for the per-mode scenarios (plan §9.5
 #     M-*). Installed disabled; run.ps1 enables them for KZTimer/SimpleKZ runs only. GOKZ's surf fix
 #     plugin is deliberately left out: it changes collision.
 $gokz = Join-Path $Mods 'gokz'
@@ -51,7 +51,7 @@ $mapi = Join-Path $Mods 'movementapi'
 if ((Test-Path $gokz) -and (Test-Path $mapi)) {
     $kz = Join-Path $sm 'plugins\disabled\gokz'
     New-Item -ItemType Directory -Force $kz | Out-Null
-    foreach ($p in 'gokz-core', 'gokz-mode-vanilla', 'gokz-mode-simplekz', 'gokz-mode-kztimer') {
+    foreach ($p in 'gokz-core', 'gokz-mode-vanilla', 'gokz-mode-simplekz', 'gokz-mode-kztimer', 'gokz-jumpstats') {
         Copy-Item (Join-Path $gokz "addons\sourcemod\plugins\$p.smx") $kz -Force
     }
     Copy-Item (Join-Path $mapi 'addons\sourcemod\plugins\movementapi.smx') $kz -Force

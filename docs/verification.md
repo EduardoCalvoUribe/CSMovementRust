@@ -80,15 +80,48 @@ See the status table in `README.md` for the per-subsystem verdict against plan Â
 | S5 strafe jump | WITHIN_EPS | WITHIN_EPS |
 | S7, S7F ten perfect bhops | BIT_EXACT | WITHIN_EPS (after the SimpleKZ takeoff snap, D10) |
 | S19 long jumps (230/240/250) | BIT_EXACT | BIT_EXACT |
-| S20 prestrafe while turning | **FAILED** from the first turning tick | **FAILED** from the first turning tick |
+| S20 prestrafe while turning | WITHIN_EPS (horizontal columns bit-exact) | WITHIN_EPS (horizontal columns bit-exact) |
 
-- Everything except prestrafe matches: GOKZ's cvars (air accelerate 100, bunnyhopping on, no stamina),
-  perfect-bhop handling and takeoff behavior are reproduced by our mode configs and hooks.
-- Prestrafe does not match. Both real modes reach about 276 as the reference says, but KZTimer peaks near
-  275.6 and then decays while still turning (272 after 0.7 s, 260 after 1 s) where ours holds 276, and
-  SimpleKZ caps at 276.54 (ours 276.0) and grows more slowly than our design. Matching it exactly means
-  implementing GOKZ's prestrafe algorithms, which are GPL-3.0; CLAUDE.md requires a licence decision
-  before porting GOKZ logic, so this is left open (D10).
-- KZTimer at 64 tick could not be captured: GOKZ 3.6.4 keeps the player in Vanilla mode at 64 tick
-  (`GOKZ_SetMode` has no effect), so our KZTimer-at-64 combination has no real counterpart.
+- Everything matches since the KZ modes were ported from GOKZ 3.6.4 and MovementAPI 2.4.4 (D10,
+  `docs/modes-notes.md`); the only residual in S20 is one landing `origin_z` tick (2.4e-7), the open
+  landing difference. Before the port, our own hook designs matched jumps, bhops and long jumps but not
+  prestrafe: real KZTimer peaks near 275.6 then decays while still turning, and SimpleKZ caps at 276.54.
+- KZTimer at 64 tick has no real counterpart: GOKZ's KZTimer and SimpleKZ refuse to run below 128 tick
+  (so GOKZ kept the player in Vanilla), and our KZ modes now lock 128 tick too.
 - Vanilla S20 (turning while running, then a jump) is BIT_EXACT at 64 tick and WITHIN_EPS at 128.
+
+### D14 probes (64 tick)
+
+Ten scenarios (`D14-*` in `compare scenarios`), each changing one factor of `S17` (place, held keys,
+horizontal speed, duck timing, ground or air), isolated the faster duck-speed recovery: it starts once
+the player is more than 64 units horizontally from where duck speed was last full. Rule, evidence and
+fix: `docs/divergences.md` D14. After the fix both 64-tick S17 captures are BIT_EXACT; BIT_EXACT counts
+went from 45 to 47 of 77 (v64b) and 44 to 45 (v64a), with no new failures in any run.
+
+### BSP maps (M9)
+
+- **Compiled test map through the BSP backend.** `compare all <run> --bsp data\map\csmove_capture.bsp`
+  replays every capture on the map the server actually ran, loaded by `world/bsp.rs`: the same verdict
+  for all 77 captures at 64 tick and 79 at 128 tick, with the same BIT_EXACT counts as the primitive
+  world. `cargo test` repeats this for the promoted captures when the compiled map is present.
+- **A community KZ map.** kz_longjumps_v4096 (Steam Workshop 1707360214, fetched with SteamCMD, kept
+  outside the repository). `compare scenarios <dir> --bsp <map> --lj x,y,z,yaw` generates long jumps on
+  its 240-unit blocks with our model (strafe timing searched until the jump lands on the next block);
+  `run.ps1 -MapFile <map>` captures them, with GOKZ's jumpstats loaded in the KZ modes.
+
+| Mode, 128 tick | Movement vs real game | Our LJ distance | GOKZ in-game LJ |
+|---|---|---|---|
+| KZTimer, 3 lanes | BIT_EXACT | 266.6992 | 266.6992 (one 266.6991) |
+| SimpleKZ, 3 lanes | BIT_EXACT | 266.6992 | 266.6992 |
+| Vanilla, 3 lanes | WITHIN_EPS | 247.5244 / 247.5239 | (GOKZ not loaded) |
+
+  This meets the M9 gate (long-jump distances on a known KZ map equal the in-game jumpstats for the same
+  input) and resolves D11. Earlier batches on the same map also gave BIT_EXACT KZ-mode runs that fell
+  into the pit (a scenario-generator strafe bug, since fixed: for air accelerate 100 the best strafe is
+  perpendicular to the velocity).
+- **Rig findings.** A start with the hull exactly touching a wall or the map's start button is inside
+  solid for both simulations; the engine then frees the player with `CheckStuck`, which we don't model
+  (D20). A capture made while the machine was busy compiling had four commands processed in one server
+  tick with no movement (server tick 6943 to 6950, consecutive command numbers); keep the machine idle
+  during captures. KZ runs need `gokz-jumpstats` installed (setup.ps1 now does), and its reports are in
+  the client console log that `run.ps1` copies next to the captures.

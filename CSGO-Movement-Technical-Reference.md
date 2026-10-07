@@ -1034,17 +1034,17 @@ This research compared implementations and checked selected formulas numerically
 
 ## 24. Annotated primary-source reading list
 
-The references below link the actual implementations or authors' accounts. Historical source links are pinned; other repositories should be pinned to a commit before using them as a reproducibility specification.
+The references below link the actual implementations or authors' accounts, except the historical CS:GO source (S2, S3, S12, S21), an unofficial leak that is cited by file but not linked. Repositories should be pinned to a commit before using them as a reproducibility specification.
 
 ### Actual code and reconstructed code
 
 **S1. Valve, Source SDK 2013 — movement implementation.** Official public baseline. Useful for architecture, clipping, stepping, friction, and air acceleration. It is not CS:GO's complete controller.  
 https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/game/shared/gamemovement.cpp
 
-**S2. Historical CS:GO mirror — shared movement.** Read AirAccelerate, AirMove, WalkMove, TryPlayerMove, ClipVelocity, StepMove, CategorizePosition, FullWalkMove, CheckFalling, and LadderMove.  
+**S2. Historical CS:GO source (unofficial leak) — shared movement, `game/shared/gamemovement.cpp`.** Read AirAccelerate, AirMove, WalkMove, TryPlayerMove, ClipVelocity, StepMove, CategorizePosition, FullWalkMove, CheckFalling, and LadderMove.  
 Unofficial leak of the CS:GO source; not linked.
 
-**S3. Historical CS:GO mirror — CS-specific movement override.** The most important file for avoiding generic-Source mistakes. Read CheckParameters, Accelerate, CheckJumpButton, PreventBunnyJumping, OnJump, OnLand, Duck, FinishDuck, FinishUnDuck, and CanUnduck.  
+**S3. Historical CS:GO source (unofficial leak) — CS-specific movement override, `cs_gamemovement.cpp`.** The most important file for avoiding generic-Source mistakes. Read CheckParameters, Accelerate, CheckJumpButton, PreventBunnyJumping, OnJump, OnLand, Duck, FinishDuck, FinishUnDuck, and CanUnduck.  
 Unofficial leak of the CS:GO source; not linked.
 
 **S4. click4dylan, CSGO_GameMovement_Reversed.** Independent reverse-engineering artifact; repository description explicitly warns of its age.  
@@ -1076,7 +1076,7 @@ https://forums.alliedmods.net/showthread.php?t=255298
 **S11. zer0k, “CSGO (and CS2) deadstrafe explained.”** Direct researcher explanation tying the effect to CategorizePosition and AirAccelerate.  
 https://gist.github.com/zer0k-z/808bc8bfc494e0bbb5a423c2b1ca6685
 
-**S12. Historical command/input definitions.** Useful for separating input sampling from movement simulation.  
+**S12. Historical command/input definitions (unofficial leak), `usercmd.h` and `in_main.cpp`.** Useful for separating input sampling from movement simulation.  
 Unofficial leak of the CS:GO source; not linked.
 
 ### Collision research and community tools
@@ -1108,7 +1108,7 @@ https://houseofclimb.com/threads/mastery-of-strafing-in-csgo-a-guide-by-udneedam
 **S20. Valve, 28 October 2024 release notes.** Explicit retrospective confirmation of coordinate-dependent CS:GO jump-height variation; the announced fix itself was for CS2.  
 https://store.steampowered.com/news/posts/?appids=730&enddate=1730247350&feed=steam_community_announcements
 
-**S21. Historical CS constants and shared movement cvars.** Companion definitions for interpreting the movement code.  
+**S21. Historical CS constants and shared movement cvars (unofficial leak), `cs_shareddefs.cpp` and `movevars_shared.cpp`.** Companion definitions for interpreting the movement code.  
 Unofficial leak of the CS:GO source; not linked.
 
 ## 25. Remaining evidence gaps

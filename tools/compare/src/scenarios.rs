@@ -6,7 +6,7 @@
 
 use movement::cmd::{Buttons, UserCmd};
 use movement::instrument::TechniqueDetector;
-use movement::{process_movement, tick_interval, ModeKind, MovementConfig, MovementMode, PlayerState, PrimitiveWorld, Vec3};
+use movement::{process_movement, tick_interval, ModeKind, MovementConfig, MovementMode, PlayerState, TraceWorld, Vec3};
 
 pub struct Scenario {
     pub id: String,
@@ -19,6 +19,8 @@ pub struct Scenario {
     pub settle: u32,
     pub cmds: Vec<UserCmd>,
     pub isolates: &'static str,
+    /// The BSP map the scenario runs on; `None` is the test level (`csmove_capture`).
+    pub map: Option<String>,
 }
 
 impl Scenario {
@@ -29,7 +31,7 @@ impl Scenario {
 
 /// Generator: a running copy of our sim that records every command it is given.
 pub struct Gen<'w> {
-    world: &'w PrimitiveWorld,
+    world: &'w dyn TraceWorld,
     cfg: MovementConfig,
     mode: Box<dyn MovementMode + Send + Sync>,
     pub state: PlayerState,
@@ -52,7 +54,7 @@ pub enum Side {
 }
 
 impl<'w> Gen<'w> {
-    fn new(world: &'w PrimitiveWorld, kind: ModeKind, rate: u32, origin: Vec3, yaw: f32, settle: u32) -> Self {
+    fn new(world: &'w dyn TraceWorld, kind: ModeKind, rate: u32, origin: Vec3, yaw: f32, settle: u32) -> Self {
         let mode = kind.create();
         let cfg = *mode.config();
         let mut g = Gen {
@@ -155,7 +157,10 @@ impl<'w> Gen<'w> {
             return self.yaw;
         }
         let accel = self.cfg.air_accelerate * self.cfg.weapon_max_speed * self.dt * self.state.surface_friction;
-        let cos = ((self.cfg.air_wish_cap - accel) / speed).clamp(-1.0, 1.0);
+        // The gain is largest where the wish direction's component of the velocity is `cap - accel`;
+        // when one tick's acceleration exceeds the cap (KZ modes' air accelerate 100) that is 0, a
+        // perpendicular wish direction.
+        let cos = ((self.cfg.air_wish_cap - accel).max(0.0) / speed).clamp(-1.0, 1.0);
         let theta = cos.acos().to_degrees();
         let vel_yaw = v.y.atan2(v.x).to_degrees();
         match side {
@@ -195,6 +200,26 @@ impl<'w> Gen<'w> {
         self
     }
 
+    /// Like `sync_until_land`, but the first strafe lasts `first` ticks so the S-shaped path stays
+    /// centred on the run direction (a half strafe, then full ones).
+    pub fn sync_strafes(&mut self, first: u32, half: u32, max_ticks: u32) -> &mut Self {
+        let mut side = Side::Left;
+        let mut n = 0;
+        let mut len = first;
+        while n < max_ticks {
+            for _ in 0..len {
+                if self.state.on_ground() {
+                    return self;
+                }
+                self.strafe(side, 1, Buttons::NONE);
+                n += 1;
+            }
+            len = half;
+            side = if side == Side::Left { Side::Right } else { Side::Left };
+        }
+        self
+    }
+
     fn try_variant(&self, f: impl FnOnce(&mut Gen<'w>) -> movement::TechniqueFlags) -> movement::TechniqueFlags {
         let mut probe = self.fork();
         f(&mut probe)
@@ -221,8 +246,9 @@ fn above(x: f32, y: f32, z: f32) -> Vec3 {
 }
 
 struct Builder<'w> {
-    world: &'w PrimitiveWorld,
+    world: &'w dyn TraceWorld,
     out: Vec<Scenario>,
+    map: Option<String>,
 }
 
 impl<'w> Builder<'w> {
@@ -239,7 +265,7 @@ impl<'w> Builder<'w> {
     ) {
         for &mode in modes {
             for rate in [64u32, 128] {
-                if mode == ModeKind::SimpleKz && rate != 128 {
+                if mode.create().required_tickrate().is_some_and(|r| r != rate) {
                     continue;
                 }
                 let settle = ((settle_secs * rate as f32).round() as u32).max(1);
@@ -257,16 +283,17 @@ impl<'w> Builder<'w> {
                     settle,
                     cmds: std::mem::take(&mut g.cmds),
                     isolates,
+                    map: self.map.clone(),
                 });
             }
         }
     }
 }
 
-pub fn all(world: &PrimitiveWorld) -> Vec<Scenario> {
+pub fn all(world: &dyn TraceWorld) -> Vec<Scenario> {
     let v = [ModeKind::Vanilla];
     let all_modes = [ModeKind::Vanilla, ModeKind::KzTimer, ModeKind::SimpleKz];
-    let mut b = Builder { world, out: Vec::new() };
+    let mut b = Builder { world, out: Vec::new(), map: None };
     let (fx, fy) = testlevel::FAR;
     let settle = 0.5;
 
@@ -510,6 +537,89 @@ pub fn all(world: &PrimitiveWorld) -> Vec<Scenario> {
     for (tag, rate_deg) in [("a", 90.0), ("b", 140.0)] {
         b.add(&format!("S20-{tag}"), &all_modes, "prestrafe while turning", above(0.0, 0.0, 0.0), 0.0, settle, move |g| {
             g.secs(W, 0.4).turning(W | Buttons::LEFT, 1.2, rate_deg).hold(W | J, 1).secs(NONE, 1.0);
+            true
+        });
+    }
+
+    // D14 probes: airborne crouch-jumps that vary one factor of S17 at a time (place, held keys,
+    // horizontal speed, when the duck starts) to find what makes duck speed recover faster.
+    let o = above(0.0, 0.0, 0.0);
+    b.add("D14-flat", &v, "S17's jump and duck on the flat floor", o, 0.0, settle, |g| {
+        g.hold(W, 17).hold(W | J, 1).hold(C, 70).secs(NONE, 0.5);
+        true
+    });
+    b.add("D14-flatw", &v, "as D14-flat, holding forward in the air", o, 0.0, settle, |g| {
+        g.hold(W, 17).hold(W | J, 1).hold(W | C, 70).secs(NONE, 0.5);
+        true
+    });
+    b.add("D14-still", &v, "as D14-flat with no horizontal speed", o, 0.0, settle, |g| {
+        g.hold(J, 1).hold(C, 70).secs(NONE, 0.5);
+        true
+    });
+    b.add("D14-run", &v, "as D14-flat at full running speed", o, 0.0, settle, |g| {
+        g.hold(W, 64).hold(W | J, 1).hold(C, 70).secs(NONE, 0.5);
+        true
+    });
+    b.add("D14-late", &v, "as D14-flat, ducking 10 ticks after the jump", o, 0.0, settle, |g| {
+        g.hold(W, 17).hold(W | J, 1).hold(NONE, 10).hold(C, 60).secs(NONE, 0.5);
+        true
+    });
+    b.add("D14-tower", &v, "S17's jump off the 256 tower without the bug release", above(3740.0, 1480.0, 256.0), 0.0, settle, |g| {
+        g.run_and_jump_at_edge(W, 64).hold(C, 100).secs(NONE, 0.5);
+        true
+    });
+    b.add("D14-fall", &v, "walk off the 512 tower, duck while falling", above(4080.0, 1480.0, 512.0), 0.0, settle, |g| {
+        g.hold(W, 12).hold(C, 120).secs(NONE, 0.5);
+        true
+    });
+    // Shift-walk speed (130, 2.03125 units per tick at 64) separates "over 64 units from the last
+    // full-speed position" from "over 60 units from the press" by one tick.
+    b.add("D14-walk", &v, "as D14-flat at shift-walk speed", o, 0.0, settle, |g| {
+        g.hold(W | Buttons::WALK, 64).hold(W | Buttons::WALK | J, 1).hold(C, 70).secs(NONE, 0.5);
+        true
+    });
+    b.add("D14-slide", &v, "duck pressed on the ground at running speed", o, 0.0, settle, |g| {
+        g.hold(W, 64).hold(W | C, 70).secs(NONE, 0.5);
+        true
+    });
+    b.add("D14-ground", &v, "duck held on the ground after a fatigue press", o, 0.0, settle, |g| {
+        g.hold(C, 6).hold(NONE, 6).hold(C, 6).hold(NONE, 6).secs(C, 2.0).secs(NONE, 0.5);
+        true
+    });
+    b.out
+}
+
+/// Long jumps on a BSP map (M9 gate): from each runway start, run along `yaw` and jump at the edge,
+/// then strafe in sync. The strafe timing (strafe length, and a shorter first strafe that keeps the
+/// path centred) is searched in our model, keeping the longest jump that lands back at takeoff height
+/// (on the target block, not in the pit or against a lane wall). `starts` are feet positions.
+pub fn long_jumps(world: &dyn TraceWorld, map: &str, starts: &[(Vec3, f32)]) -> Vec<Scenario> {
+    let all_modes = [ModeKind::Vanilla, ModeKind::KzTimer, ModeKind::SimpleKz];
+    let mut b = Builder { world, out: Vec::new(), map: Some(map.to_string()) };
+    for (k, &(o, yaw)) in starts.iter().enumerate() {
+        b.add(&format!("M9-lj-{k}"), &all_modes, "long jump on a BSP map", above(o.x, o.y, o.z), yaw, 0.5, |g| {
+            g.run_and_jump_at_edge(W, g.t(6.0));
+            let takeoff = g.state.origin;
+            let scale = g.rate as f32 / 64.0;
+            let mut best: Option<(f32, Gen)> = None;
+            let rate = g.rate;
+            for half64 in 4..=14u32 {
+                let half = (half64 as f32 * scale).round() as u32;
+                for first in [half / 2, half] {
+                    let mut p = g.fork();
+                    p.sync_strafes(first.max(1), half, p.t(2.0));
+                    let d = p.state.origin.sub(takeoff).length_2d();
+                    // Back at takeoff height and far enough to have crossed a block gap.
+                    let landed = p.state.on_ground() && (p.state.origin.z - takeoff.z).abs() < 2.0 && d >= 200.0;
+                    if landed && best.as_ref().is_none_or(|(bd, _)| d > *bd) {
+                        best = Some((d, p));
+                    }
+                }
+            }
+            let Some((d, p)) = best else { return false };
+            eprintln!("M9-lj-{k} at {rate} tick: lands {d:.2} units from takeoff ({:.2} with the +32 convention)", d + 32.0);
+            *g = p;
+            g.secs(NONE, 0.3);
             true
         });
     }

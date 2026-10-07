@@ -2,12 +2,14 @@
 //!
 //! `csmove --check <file.replay>` replays a recording headlessly and compares it with the live run.
 //! `csmove --ghost <capture>` plays a real-server capture with the captured hull drawn as a ghost.
+//! `csmove --map <file.bsp>` starts on a BSP map instead of the test level; `M` in game picks maps.
 
 mod camera;
 mod ghost;
 mod hud;
 mod input;
 mod level;
+mod maps;
 mod modes;
 mod record;
 mod sim;
@@ -31,10 +33,14 @@ fn main() {
         }
     }
 
-    let level = level::describe();
-    let world = level::build_world(&level);
-    let spawn = (level.areas[0].spawn, level.areas[0].yaw);
-    let mut sim = sim::Sim::new(world, spawn);
+    let map_arg = args.iter().position(|a| a == "--map").and_then(|i| args.get(i + 1)).map(std::path::PathBuf::from);
+    let loaded = level::load(map_arg.as_deref()).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1)
+    });
+    let first = &loaded.info.areas[0];
+    let spawn = (first.spawn, first.yaw);
+    let mut sim = sim::Sim::new(loaded.world, spawn);
     let ghost = if args.len() == 3 && args[1] == "--ghost" {
         let mut g = ghost::Ghost::load(std::path::Path::new(&args[2])).unwrap_or_else(|e| {
             eprintln!("{e}");
@@ -48,6 +54,7 @@ fn main() {
     } else {
         None
     };
+    let menu = maps::MapMenu::new(map_arg.as_deref());
 
     let mut app = App::new();
     if let Some(g) = ghost {
@@ -66,14 +73,16 @@ fn main() {
         .insert_resource(ClearColor(Color::srgb(0.53, 0.68, 0.85)))
         .insert_resource(Time::<Fixed>::from_hz(64.0))
         .insert_resource(sim)
-        .insert_resource(modes::LevelInfo(level))
+        .insert_resource(loaded.info)
+        .insert_resource(maps::StartGeometry(Some(loaded.geometry)))
+        .insert_resource(menu)
         .init_resource::<input::MouseSettings>()
         .init_resource::<input::ViewAngles>()
         .init_resource::<input::HeldInput>()
-        .add_systems(Startup, (camera::spawn_camera, hud::spawn_hud, setup_level))
+        .add_systems(Startup, (camera::spawn_camera, hud::spawn_hud, maps::spawn_menu, maps::setup_level))
         .add_systems(
             RunFixedMainLoop,
-            (input::grab_cursor, input::accumulate_input, modes::hotkeys, sim::sync_timestep)
+            (maps::menu_input, input::grab_cursor, input::accumulate_input, modes::hotkeys, sim::sync_timestep)
                 .chain()
                 .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         )
@@ -83,17 +92,8 @@ fn main() {
             Update,
             (camera::update_camera, camera::update_signs, hud::update_hud, hud::debug_gizmos, ghost::ghost_gizmos).chain(),
         )
+        .add_systems(Update, (maps::menu_clicks, maps::load_requested, maps::draw_menu).chain())
         .run();
-}
-
-fn setup_level(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
-    level: Res<modes::LevelInfo>,
-) {
-    level::spawn_level(&mut commands, &mut meshes, &mut materials, &mut images, &level.0);
 }
 
 #[cfg(test)]
@@ -114,7 +114,7 @@ mod tests {
         let level = crate::level::describe();
         let world = crate::level::build_world(&level);
         for a in &level.areas {
-            let mut s = crate::sim::Sim::new(world.clone(), (a.spawn, a.yaw));
+            let mut s = crate::sim::Sim::new(world.clone().into(), (a.spawn, a.yaw));
             for _ in 0..16 {
                 s.step(movement::UserCmd::default());
             }
@@ -129,7 +129,7 @@ mod tests {
         let level = crate::level::describe();
         let world = crate::level::build_world(&level);
         let a = &level.areas[1];
-        let mut s = crate::sim::Sim::new(world, (a.spawn, a.yaw));
+        let mut s = crate::sim::Sim::new(world.into(), (a.spawn, a.yaw));
         let cmd = |b| movement::UserCmd::from_buttons(0, movement::Vec3::ZERO, b);
         for _ in 0..96 { s.step(cmd(Buttons::FORWARD)); }
         s.step(cmd(Buttons::FORWARD | Buttons::JUMP));

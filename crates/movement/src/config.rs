@@ -71,6 +71,10 @@ pub struct MovementConfig {
     pub duck_speed_min: f32,
     /// Duck speed regained per second, every command.
     pub duck_speed_recovery: f32,
+    /// Once the player is more than this far (horizontally) from where duck speed was last full, it
+    /// recovers at `duck_speed_recovery_far` instead (measured, docs/divergences.md D14).
+    pub duck_recovery_far_distance: f32,
+    pub duck_speed_recovery_far: f32,
     /// Grounded duck-down rate is `duck_speed * duck_down_scale` per second.
     pub duck_down_scale: f32,
     /// Unducking (and a refused duck) moves at `max(duck_speed, unduck_speed_min)` per second.
@@ -130,6 +134,8 @@ impl MovementConfig {
             duck_speed_penalty: 2.0,
             duck_speed_min: 0.0,
             duck_speed_recovery: 3.0,
+            duck_recovery_far_distance: 64.0,
+            duck_speed_recovery_far: 9.0,
             duck_down_scale: 0.8,
             unduck_speed_min: 1.5,
             duck_refuse_below: 1.5,

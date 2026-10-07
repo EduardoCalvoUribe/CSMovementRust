@@ -55,8 +55,10 @@ pub fn grab_cursor(
     mut cursor: Single<&mut CursorOptions>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
+    menu: Res<crate::maps::MapMenu>,
 ) {
-    if mouse.just_pressed(MouseButton::Left) {
+    // Clicks in the map menu pick a map instead of grabbing the mouse.
+    if mouse.just_pressed(MouseButton::Left) && !menu.open {
         cursor.visible = false;
         cursor.grab_mode = CursorGrabMode::Locked;
     }
@@ -66,6 +68,7 @@ pub fn grab_cursor(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn accumulate_input(
     keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
@@ -74,7 +77,14 @@ pub fn accumulate_input(
     settings: Res<MouseSettings>,
     mut angles: ResMut<ViewAngles>,
     mut input: ResMut<HeldInput>,
+    menu: Res<crate::maps::MapMenu>,
 ) {
+    // The map menu owns the keyboard while it is open.
+    if menu.open {
+        wheel.clear();
+        input.held = Buttons::NONE;
+        return;
+    }
     let grabbed = cursor.grab_mode != CursorGrabMode::None;
     if grabbed {
         let d = motion.delta;

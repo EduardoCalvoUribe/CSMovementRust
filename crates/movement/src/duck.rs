@@ -47,8 +47,18 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         // Too fatigued: the press is ignored and the player keeps unducking (crouch spam). Checked before
         // this command's recovery; the transition below uses the recovered speed.
         let wants_duck = held && self.state.duck_speed >= self.cfg.duck_refuse_below;
-        self.state.duck_speed =
-            approach(self.cfg.duck_speed_ideal, self.state.duck_speed, self.dt * self.cfg.duck_speed_recovery);
+        // Recovery is three times faster once the player has moved away from where duck speed was last
+        // full; the anchor follows the player while it is full (measured, docs/divergences.md D14).
+        let moved = self.state.origin.sub(self.state.duck_speed_anchor).length_2d();
+        let recovery = if moved > self.cfg.duck_recovery_far_distance {
+            self.cfg.duck_speed_recovery_far
+        } else {
+            self.cfg.duck_speed_recovery
+        };
+        self.state.duck_speed = approach(self.cfg.duck_speed_ideal, self.state.duck_speed, self.dt * recovery);
+        if self.state.duck_speed == self.cfg.duck_speed_ideal {
+            self.state.duck_speed_anchor = self.state.origin;
+        }
         let in_air = !self.state.on_ground();
 
         if wants_duck {
@@ -122,6 +132,9 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
 
     /// The standing hull must sweep from the current origin to the unducked origin [Ref §10.2].
     pub(crate) fn can_unduck(&self) -> bool {
+        if let Some(v) = self.mode.can_unduck(self.state) {
+            return v;
+        }
         let new_origin = self.unduck_origin();
         let tr = self.world.trace_hull(self.state.origin, new_origin, Hull::STAND);
         !(tr.start_solid || tr.fraction != 1.0)

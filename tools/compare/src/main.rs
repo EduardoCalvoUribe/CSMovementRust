@@ -3,12 +3,17 @@
 //! ```text
 //! compare map <out.vmf>                       export the test level as a Hammer map
 //! compare scenarios <dir>                     write the scenario ladder for the server plugin
+//!   `--bsp <map.bsp> --lj x,y,z,yaw ...` writes long-jump scenarios on that map instead (M9 gate)
 //! compare import <results> <captures>         turn plugin output into capture folders
 //! compare diff <capture> [--reports <dir>]    replay and diff one capture
 //! compare all <captures> [--reports <dir>]    diff every capture, summary table, exit 1 on FAILED
+//!   (diff and all take `--bsp <csmove_capture.bsp>` to replay on the compiled map via the BSP backend)
 //! compare repro <capture-a> <capture-b>       reproducibility check: are two captures identical?
 //! compare promote <capture> <tests-dir>       copy a passing capture into the regression suite
 //! compare trace <capture> <from>[..<to>]       our routine-level events for those ticks, re-synced
+//! compare bsp <map.bsp>...                     load maps, list spawns, run from each spawn, time traces
+//! compare jumps <captures> [--bsp <map.bsp>]  our jump stats for each capture: our replay, and our
+//!                                             measurement of the captured trajectory
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -22,13 +27,17 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let r = match args.first().map(String::as_str) {
         Some("map") if args.len() == 2 => cmd_map(Path::new(&args[1])),
-        Some("scenarios") if args.len() == 2 => cmd_scenarios(Path::new(&args[1])),
+        Some("scenarios") if args.len() >= 2 => cmd_scenarios(Path::new(&args[1]), &args),
         Some("import") if args.len() == 3 => cmd_import(Path::new(&args[1]), Path::new(&args[2])),
-        Some("diff") if args.len() >= 2 => cmd_diff(Path::new(&args[1]), &reports_dir(&args), true).map(|_| ()),
-        Some("all") if args.len() >= 2 => cmd_all(Path::new(&args[1]), &reports_dir(&args)),
+        Some("diff") if args.len() >= 2 => {
+            replay_world(&args).and_then(|w| cmd_diff(Path::new(&args[1]), &reports_dir(&args), &w, true)).map(|_| ())
+        }
+        Some("all") if args.len() >= 2 => replay_world(&args).and_then(|w| cmd_all(Path::new(&args[1]), &reports_dir(&args), &w)),
         Some("repro") if args.len() == 3 => cmd_repro(Path::new(&args[1]), Path::new(&args[2])),
         Some("promote") if args.len() == 3 => cmd_promote(Path::new(&args[1]), Path::new(&args[2])),
         Some("trace") if args.len() == 3 => cmd_trace(Path::new(&args[1]), &args[2]),
+        Some("jumps") if args.len() >= 2 => replay_world(&args).and_then(|w| cmd_jumps(Path::new(&args[1]), &w)),
+        Some("bsp") if args.len() >= 2 => args[1..].iter().try_for_each(|m| cmd_bsp(Path::new(m))),
         _ => Err("usage: compare map|scenarios|import|diff|all|repro|promote ... (see src/main.rs)".into()),
     };
     match r {
@@ -48,6 +57,20 @@ fn reports_dir(args: &[String]) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("reports"))
 }
 
+/// The world captures replay on, and the BSP map's name when `--bsp` gave one.
+struct ReplayWorld {
+    world: movement::world::World,
+    bsp: Option<String>,
+}
+
+fn replay_world(args: &[String]) -> Result<ReplayWorld, String> {
+    let bsp = args.iter().position(|a| a == "--bsp").and_then(|i| args.get(i + 1)).map(Path::new);
+    Ok(ReplayWorld {
+        world: compare::load_world(bsp)?,
+        bsp: bsp.and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned()),
+    })
+}
+
 fn write(path: &Path, text: &str) -> Result<(), String> {
     if let Some(p) = path.parent() {
         std::fs::create_dir_all(p).map_err(|e| format!("{}: {e}", p.display()))?;
@@ -61,16 +84,41 @@ fn cmd_map(out: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn cmd_scenarios(dir: &Path) -> Result<(), String> {
-    let world = compare::world();
-    let all = scenarios::all(&world);
+fn cmd_scenarios(dir: &Path, args: &[String]) -> Result<(), String> {
+    let bsp = args.iter().position(|a| a == "--bsp").and_then(|i| args.get(i + 1)).map(Path::new);
+    let all = match bsp {
+        None => scenarios::all(&compare::world()),
+        Some(p) => {
+            let world = compare::load_world(Some(p))?;
+            let name = p.file_stem().ok_or("map path has no file name")?.to_string_lossy().into_owned();
+            let mut starts = Vec::new();
+            for (i, a) in args.iter().enumerate() {
+                if a == "--lj" {
+                    let v: Vec<f32> = args
+                        .get(i + 1)
+                        .ok_or("--lj needs x,y,z,yaw")?
+                        .split(',')
+                        .map(|t| t.trim().parse::<f32>().map_err(|e| format!("--lj `{t}`: {e}")))
+                        .collect::<Result<_, _>>()?;
+                    if v.len() != 4 {
+                        return Err("--lj needs x,y,z,yaw".into());
+                    }
+                    starts.push((movement::Vec3::new(v[0], v[1], v[2]), v[3]));
+                }
+            }
+            if starts.is_empty() {
+                return Err("--bsp needs at least one --lj x,y,z,yaw runway start".into());
+            }
+            scenarios::long_jumps(&world, &name, &starts)
+        }
+    };
     let mut lists: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     for s in &all {
         let name = s.dir_name();
         let d = dir.join(&name);
         write(&d.join("cmds.csv"), &capture::write_cmds(&s.cmds))?;
         let o = s.origin;
-        let cfg = format!(
+        let mut cfg = format!(
             "name {name}\nid {}\nmode {}\ntickrate {}\norigin {:.6} {:.6} {:.6}\nyaw {:.6}\nsettle {}\ncount {}\nisolates {}\n",
             s.id,
             capture::mode_name(s.mode),
@@ -83,8 +131,13 @@ fn cmd_scenarios(dir: &Path) -> Result<(), String> {
             s.cmds.len(),
             s.isolates
         );
+        if let Some(m) = &s.map {
+            cfg.push_str(&format!("map {m}
+"));
+        }
         write(&d.join("scenario.cfg"), &cfg)?;
-        lists.entry(format!("list_{}_{}.txt", capture::mode_name(s.mode), s.tickrate)).or_default().push(name);
+        let prefix = s.map.as_ref().map_or(String::new(), |m| format!("{m}_"));
+        lists.entry(format!("list_{prefix}{}_{}.txt", capture::mode_name(s.mode), s.tickrate)).or_default().push(name);
     }
     for (file, names) in &lists {
         write(&dir.join(file), &(names.join("\n") + "\n"))?;
@@ -109,7 +162,14 @@ fn cmd_import(results: &Path, captures: &Path) -> Result<(), String> {
         write(&out.join("cmds.csv"), &cmds)?;
         write(&out.join("states.csv"), &read("states.csv")?)?;
         write(&out.join("meta.toml"), &read("meta.toml")?)?;
-        write(&out.join("scenario.toml"), &format!("{}level_hash = \"{hash}\"\n", read("scenario.toml")?))?;
+        // The level hash identifies the test level; captures on other maps are identified by map name.
+        let on_test_map = Kv::parse(&read("meta.toml")?)?.get("map").is_none_or(|m| m == "csmove_capture");
+        let scen_text = read("scenario.toml")?;
+        if on_test_map {
+            write(&out.join("scenario.toml"), &format!("{scen_text}level_hash = \"{hash}\"\n"))?;
+        } else {
+            write(&out.join("scenario.toml"), &scen_text)?;
+        }
         match Capture::load(&out) {
             Ok(_) => n += 1,
             Err(e) => {
@@ -124,7 +184,17 @@ fn cmd_import(results: &Path, captures: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn check_geometry(cap: &Capture) -> Result<(), String> {
+/// Captures must replay on the level they were made on: the test level (hash-checked), or a BSP map
+/// given with `--bsp` whose file name matches the captured map name.
+fn check_geometry(cap: &Capture, bsp: Option<&str>) -> Result<(), String> {
+    let map = cap.meta.get("map").unwrap_or("csmove_capture");
+    if map != "csmove_capture" || bsp.is_some_and(|b| b != "csmove_capture") {
+        return match bsp {
+            Some(b) if b == map => Ok(()),
+            Some(b) => Err(format!("{}: captured on {map}, replaying on {b}", cap.name())),
+            None => Err(format!("{}: captured on {map}; pass --bsp with that map", cap.name())),
+        };
+    }
     let want = capture::level_hash(&testlevel::describe());
     match cap.scenario.get("level_hash") {
         Some(h) if h != want => Err(format!("{}: captured on level {h}, current test level is {want}", cap.name())),
@@ -141,17 +211,17 @@ struct Outcome {
     ticks: usize,
 }
 
-fn cmd_diff(dir: &Path, reports: &Path, print: bool) -> Result<Outcome, String> {
+fn cmd_diff(dir: &Path, reports: &Path, rw: &ReplayWorld, print: bool) -> Result<Outcome, String> {
     let cap = Capture::load(dir)?;
-    check_geometry(&cap)?;
-    let world = compare::world();
+    check_geometry(&cap, rw.bsp.as_deref())?;
+    let world = &rw.world;
     let tol = Tolerance::default();
-    let free = diff::run(&cap, &world, Sync::Free, 0, tol)?;
-    let resync = diff::run(&cap, &world, Sync::Resync, 0, tol)?;
+    let free = diff::run(&cap, world, Sync::Free, 0, tol)?;
+    let resync = diff::run(&cap, world, Sync::Resync, 0, tol)?;
     // Phase check (plan ?9.7 step 4): does delaying our stream by a tick explain a failure?
     let mut shifted = Vec::new();
     if matches!(free.verdict, Verdict::Failed(_)) {
-        shifted.push((1, diff::run(&cap, &world, Sync::Free, 1, tol)?.verdict));
+        shifted.push((1, diff::run(&cap, world, Sync::Free, 1, tol)?.verdict));
     }
     let text = diff::text_report(&cap, &free, &resync, &shifted);
     if print {
@@ -172,14 +242,14 @@ fn cmd_diff(dir: &Path, reports: &Path, print: bool) -> Result<Outcome, String> 
     })
 }
 
-fn cmd_all(root: &Path, reports: &Path) -> Result<(), String> {
+fn cmd_all(root: &Path, reports: &Path, world: &ReplayWorld) -> Result<(), String> {
     let dirs = compare::capture_dirs(root);
     if dirs.is_empty() {
         return Err(format!("no captures under {}", root.display()));
     }
     let mut rows = Vec::new();
     for d in &dirs {
-        match cmd_diff(d, reports, false) {
+        match cmd_diff(d, reports, world, false) {
             Ok(o) => rows.push(o),
             Err(e) => eprintln!("{}: {e}", d.display()),
         }
@@ -277,6 +347,7 @@ fn cmd_trace(dir: &Path, range: &str) -> Result<(), String> {
     let mut mode = cap.mode()?.create();
     let dt = movement::tick_interval(cap.tickrate()?);
     let mut state = diff::state_from_row(&cap.pre[0], &movement::PlayerState::new(movement::Vec3::ZERO));
+    state.duck_speed_anchor = state.origin;
     for k in 0..=to.min(cap.cmds.len() - 1) {
         let mut log = EventLog::default();
         if k >= from {
@@ -291,6 +362,92 @@ fn cmd_trace(dir: &Path, range: &str) -> Result<(), String> {
             }
             let r = &cap.post[k];
             println!("  captured: origin {:?} vel {:?} ground {}", r.origin, r.velocity, r.ground);
+        }
+    }
+    Ok(())
+}
+
+/// M9 smoke check on a real map: parse it, then from every spawn run forward and jump for five seconds
+/// at 128 tick, reporting where the player ended up and how long the simulation took.
+fn cmd_bsp(path: &Path) -> Result<(), String> {
+    use movement::cmd::{Buttons, UserCmd};
+    use movement::world::BspMap;
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let t0 = std::time::Instant::now();
+    let map = BspMap::parse(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    let parse = t0.elapsed();
+    let spawns = map.spawn_points();
+    println!(
+        "{}: parsed in {parse:.1?}: {} faces, {} ladders, {} entities, {} triggers, {} spawns",
+        path.display(),
+        map.faces.len(),
+        map.ladders.len(),
+        map.entities.len(),
+        map.triggers.len(),
+        spawns.len()
+    );
+    let world: movement::world::World = map.world.into();
+    let cfg = movement::MovementConfig::default();
+    let dt = movement::tick_interval(128);
+    let t1 = std::time::Instant::now();
+    let mut cmds = 0;
+    let mut grounded = 0;
+    for (name, origin, yaw) in spawns.iter().take(8) {
+        let mut mode = movement::ModeKind::Vanilla.create();
+        let mut s = movement::PlayerState::new(*origin);
+        let mut on = 0;
+        for k in 0..640u32 {
+            let b = if k % 96 == 95 { Buttons::FORWARD | Buttons::JUMP } else { Buttons::FORWARD };
+            let c = UserCmd::from_buttons(k, movement::Vec3::new(0.0, *yaw + (k as f32 * 0.2), 0.0), b);
+            movement::process_movement(&cfg, mode.as_mut(), &world, &mut s, &c, &mut movement::NullObserver, dt);
+            on += s.on_ground() as u32;
+            cmds += 1;
+        }
+        grounded += (on > 320) as u32;
+        let o = s.origin;
+        println!("  {name:<28} from {:>8.1} {:>8.1} {:>7.1} to {:>8.1} {:>8.1} {:>7.1}, grounded {on}/640", origin.x, origin.y, origin.z, o.x, o.y, o.z);
+    }
+    let el = t1.elapsed();
+    println!("  {cmds} commands in {el:.1?} ({:.1} us each), {grounded} runs mostly grounded", el.as_secs_f64() * 1e6 / cmds.max(1) as f64);
+    Ok(())
+}
+
+/// Jump stats (M9 gate): for each capture, the jumps our tracker reports on our own replay of the
+/// commands, and on the captured (real-game) states, to set against the game's jumpstats output.
+fn cmd_jumps(root: &Path, rw: &ReplayWorld) -> Result<(), String> {
+    use movement::jumpstats::JumpTracker;
+    use movement::{process_movement, tick_interval, TechniqueDetector, TechniqueFlags};
+    let dirs = compare::capture_dirs(root);
+    for d in &dirs {
+        let cap = Capture::load(d)?;
+        check_geometry(&cap, rw.bsp.as_deref())?;
+        let cfg = cap.config()?;
+        let mut mode = cap.mode()?.create();
+        let dt = tick_interval(cap.tickrate()?);
+        let world: &dyn movement::TraceWorld = &rw.world;
+        let mut state = diff::state_from_row(&cap.pre[0], &movement::PlayerState::new(movement::Vec3::ZERO));
+        state.duck_speed_anchor = state.origin;
+        let (mut ours, mut theirs) = (JumpTracker::new(), JumpTracker::new());
+        let mut det = TechniqueDetector::default();
+        let mut lines = Vec::new();
+        for k in 0..cap.cmds.len() {
+            let before = state.clone();
+            process_movement(&cfg, mode.as_mut(), world, &mut state, &cap.cmds[k], &mut det, dt);
+            if let Some(r) = ours.tick(world, &before, &state, &cap.cmds[k], det.last, cfg.gravity, dt) {
+                lines.push(format!("  ours   tick {k:>4}: {} {:.4} (pre {:.2}, max {:.2}, {} strafes, sync {:.1}%)", r.jump_type.short(), r.distance, r.pre_speed, r.max_speed, r.strafes.len(), r.sync));
+            }
+            let b = diff::state_from_row(&cap.pre[k], &before);
+            let a = diff::state_from_row(&cap.post[k], &b);
+            // The capture has no routine-level events; a takeoff on a command holding jump is a jump.
+            let jumped = b.on_ground() && !a.on_ground() && cap.cmds[k].buttons.contains(movement::cmd::Buttons::JUMP);
+            let flags = TechniqueFlags { jumped, ..Default::default() };
+            if let Some(r) = theirs.tick(world, &b, &a, &cap.cmds[k], flags, cfg.gravity, dt) {
+                lines.push(format!("  theirs tick {k:>4}: {} {:.4} (pre {:.2}, max {:.2})", r.jump_type.short(), r.distance, r.pre_speed, r.max_speed));
+            }
+        }
+        println!("{}", cap.name());
+        for l in lines {
+            println!("{l}");
         }
     }
     Ok(())
