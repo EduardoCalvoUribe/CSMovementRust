@@ -21,6 +21,7 @@ Run cargo from PowerShell with MSVC Build Tools installed (see `CLAUDE.md`).
 cargo test                       # movement crate + app tests
 cargo test -p movement --release # same results with the optimizer on
 cargo run -p app --release       # the game
+cargo run -p app --release -- --map <file>.bsp   # start on a BSP map instead of the test level
 cargo run -p app --release -- --check recordings\<file>.replay   # headless replay vs live run
 cargo run -p app --release -- --ghost data\captures\raw\<run>\<capture>   # play a real-server capture as a ghost
 ```
@@ -41,11 +42,21 @@ cargo run -p app --release -- --ghost data\captures\raw\<run>\<capture>   # play
 | F5 | Start / stop recording (`recordings/`: `.replay` command stream, `.csv` per-tick state, `.final`) |
 | P / . | Pause / single-step one tick |
 | 1–9 | Teleport to a test area (on a BSP map: spawns, then teleport destinations) |
-| M | Map browser |
+| M | Map browser (type to filter, arrows / Page Up / Page Down to move, Enter or click to load, Esc to close) |
 
 Test areas: flat floor, long-jump runway (gaps 220–290), bhop rows, ledges (18–66), stairs (18, 16, and a
 19 that can't be stepped), wall and corridor, ramps (30–70 degrees), a 60 degree surf ridge, an edgebug
 platform, jumpbug drop towers, and a ladder.
+
+The map browser lists the test level and every `.bsp` found in `CSMOVE_MAP_DIRS` (a path list), `./maps`,
+and the CS:GO install of each Steam library (`csgo/maps` and its workshop folders). Maps are read in place,
+never copied.
+
+## Status
+
+Milestones M0–M9 (plan §8) are implemented with their gates green, including the BSP backend for real
+maps. M10 (triggers and telehops) is not started, so map triggers (teleports, timers, push volumes) do
+nothing yet.
 
 ## Verification status
 
