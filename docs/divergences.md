@@ -81,6 +81,43 @@ landings and stair snaps the first, steep-slope contacts the second); together t
 count from 25 to 45 of 77 at 64 tick and from 27 to 42 of 79 at 128 tick. The extended-precision branch
 is the one place collision arithmetic is wider than f32, deliberately, to match the engine.
 
+### D21. Box brushes decide hit or miss from exact touch times (resolved)
+For axis-aligned box brushes (the BSP's separately traced box brushes, D17), the sweep hits when the
+exact time it touches the box, `max(d1 / (d1 - d2))` over entering planes, is no later than the exact
+time it leaves, `min(d1 / (d1 - d2))` over leaving planes. There is no epsilon in that test, and touching
+exactly as the sweep leaves or ends still counts. The reported fraction and plane are unchanged: the
+entering plane's `(d1 - 1/32) / (d1 - d2)`, clamped to 0. General brushes (our wedges) keep the Quake
+form, `enter < leave` with the leave fraction `(d1 + 1/32) / (d1 - d2)`.
+
+Found with the edgebug threshold sweep (`S16t-*`, `compare scenarios`): run yaws narrowed to adjacent
+f32 values on each side of every switch between landing, edgebug and missing the platform's edge
+[Ref §14]. Measured as the hull's overlap with the platform edge at the moment of entry, the real game
+misses with up to 0.00038 units of overlap and edgebugs from 0.014. The Quake rule required more
+than 1/32 (it called real edgebugs misses, `S16t-jump-1-miss_vanilla_64` in the first batch). A box
+grown by 1/32, then a box with no epsilon on leave only, each moved the threshold past real misses.
+The touch-time rule was then checked prospectively: the threshold pairs it generated, captured afterwards,
+are all on the predicted side, bit-exact (`S16t-*` in `crates/movement/tests/captures/`, both tick rates,
+three approaches). A wall face that a sweep's end point rounds onto exactly
+(`P19s-0-bottomup_vanilla_64` tick 124) is why the comparison is inclusive: with `<` the sweep ended
+embedded and the player stopped dead where the server slid along the wall. Nothing else changed: every
+earlier capture keeps its verdict and BIT_EXACT count.
+
+### D22. Enter fractions are clamped before planes are compared (resolved; differs from SDK 2013)
+Among the planes a sweep enters, the one with the largest enter fraction is the hit plane, each
+fraction clamped to 0 first, so of several planes whose 1/32 gap the hull starts in, the first one
+listed wins. Public SDK 2013's general brush code compares unclamped fractions and clamps only the
+stored result, which lets the plane the hull is furthest from entering win, and lets a later brush
+with a negative fraction replace an earlier hit. That form was tried as the mechanism of pixelsurfs
+[Ref §19]: a hull pressed within 1/32 of a wall, with its feet less than 1/32 above a horizontal seam
+between two stacked brushes, then hits the lower brush's walkable top face, its vertical velocity is
+clipped, the ground probe misses, and the player glides along the wall on every command. Searching
+our model with it found glides of up to 230 commands on the test level's top-down slab lane, and it
+predicted the same glides on the bottom-up lane once the compiled map's brush order was used. The
+real game glided on neither: with feet 0.0078 above a seam and the hull 0.0005 from the wall it
+fell straight through (`P19s-*_vanilla_64` tick 157, `P19s-*_vanilla_128`). So, at least for box
+brushes, CS:GO does not pick a seam's top face this way, and stacked box brushes alone do not make
+pixelsurfs. The `P19-*` and `P19s-*` captures stay as regression tests of that.
+
 ## Duck
 
 ### D5. Duck speed, transition rates and crouch spam (resolved)

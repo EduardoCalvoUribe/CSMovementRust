@@ -201,7 +201,7 @@ impl Brush {
     /// Clip a box sweep against this brush, tightening `tr` if this brush is hit earlier. The box is
     /// given as its centre `start`, half-size `extents`, and motion `delta` (Source's `Ray_t`).
     pub(crate) fn clip_box(&self, start: Vec3, delta: Vec3, extents: Vec3, tr: &mut TraceResult) {
-        clip_box_to_planes(&self.planes, self.entity, start, delta, extents, tr);
+        clip_box_to_planes(&self.planes, self.entity, start, delta, extents, self.is_box(), tr);
     }
 
     pub(crate) fn may_touch(&self, lo: Vec3, hi: Vec3) -> bool {
@@ -216,9 +216,27 @@ impl Brush {
 
 /// Clip a box sweep against the convex solid bounded by `planes`, tightening `tr` if it is hit earlier.
 /// The box is given as its centre `start`, half-size `extents`, and motion `delta` (Source's `Ray_t`).
-pub(crate) fn clip_box_to_planes(planes: &[Plane], entity: EntityId, start: Vec3, delta: Vec3, extents: Vec3, tr: &mut TraceResult) {
+/// `box_brush` selects the engine's separate box-brush trace, which decides hit or miss from the
+/// exact times the sweep touches and leaves the box, with no epsilon (docs/divergences.md D21).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn clip_box_to_planes(
+    planes: &[Plane],
+    entity: EntityId,
+    start: Vec3,
+    delta: Vec3,
+    extents: Vec3,
+    box_brush: bool,
+    tr: &mut TraceResult,
+) {
+    // Each enter fraction is clamped to 0 before the planes are compared, so among planes the sweep
+    // starts inside the 1/32 gap of, the first one listed is reported. Comparing unclamped fractions
+    // (as SDK 2013's general brush code reads) lets a seam's top face win under a pressed hull and
+    // makes the player glide where the real game falls (docs/divergences.md D22).
     let mut enter_frac = -1.0f32;
     let mut leave_frac = 1.0f32;
+    // Box brushes: exact touch and leave times, for the hit test only.
+    let mut enter_touch = -1.0f32;
+    let mut leave_touch = 1.0f32;
     let mut clip_plane: Option<Vec3> = None;
     let mut get_out = false;
     let mut start_out = false;
@@ -257,11 +275,13 @@ pub(crate) fn clip_box_to_planes(planes: &[Plane], entity: EntityId, start: Vec3
                 enter_frac = f;
                 clip_plane = Some(p.normal);
             }
+            enter_touch = enter_touch.max(d1 / (d1 - d2));
         } else {
             let f = ((d1 + DIST_EPSILON) / (d1 - d2)).min(1.0);
             if f < leave_frac {
                 leave_frac = f;
             }
+            leave_touch = leave_touch.min(d1 / (d1 - d2));
         }
     }
 
@@ -274,7 +294,10 @@ pub(crate) fn clip_box_to_planes(planes: &[Plane], entity: EntityId, start: Vec3
         }
         return;
     }
-    if enter_frac < leave_frac && enter_frac > -1.0 && enter_frac < tr.fraction {
+    // A sweep that touches the box exactly as it leaves (or ends) counts as a hit: an end point
+    // rounded onto a wall face stops there instead of ending embedded (measured, D21).
+    let hit = if box_brush { enter_touch <= leave_touch } else { enter_frac < leave_frac };
+    if hit && enter_frac > -1.0 && enter_frac < tr.fraction {
         tr.fraction = enter_frac.max(0.0);
         tr.plane_normal = clip_plane.unwrap_or(Vec3::ZERO);
         tr.hit_entity = Some(entity);

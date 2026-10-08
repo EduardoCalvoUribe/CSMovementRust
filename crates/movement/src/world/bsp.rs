@@ -784,7 +784,7 @@ fn clip_box_to_triangle(t: &[Vec3; 3], ray: &Ray, lo: Vec3, hi: Vec3, tr: &mut T
             push_axis(&mut planes, e.cross(axis), true);
         }
     }
-    clip_box_to_planes(&planes, EntityId::WORLD, ray.start, ray.delta, ray.extents, tr);
+    clip_box_to_planes(&planes, EntityId::WORLD, ray.start, ray.delta, ray.extents, false, tr);
 }
 
 impl TraceWorld for BspWorld {
