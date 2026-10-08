@@ -1,0 +1,5 @@
+# Regression tolerance for this capture (plan §9.6).
+min_verdict = "BIT_EXACT"
+max_ulp = 4
+eps = 0.001
+promoted_verdict = "BIT_EXACT"

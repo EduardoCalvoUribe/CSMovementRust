@@ -92,6 +92,10 @@ pub struct Row {
     pub fall_velocity: Option<f32>,
     pub old_buttons: Option<u32>,
     pub ladder_normal: Option<Vec3>,
+    /// Logged by the plugin since the edgebug sweep; `None` in older captures and on our side.
+    pub health: Option<i32>,
+    /// `m_flVelocityModifier`: below 1 while a fall-damage slowdown recovers.
+    pub velocity_modifier: Option<f32>,
 }
 
 #[derive(Clone, Debug)]
@@ -354,6 +358,8 @@ pub fn parse_states(text: &str) -> Result<(Vec<Row>, Vec<Row>), String> {
             fall_velocity: c.f("fall_velocity")?,
             old_buttons: c.i("old_buttons")?.map(|v| v as u32),
             ladder_normal: c.v("ladder_n")?,
+            health: c.i("health")?.map(|v| v as i32),
+            velocity_modifier: c.f("velocity_modifier")?,
         };
         match c.raw("phase") {
             Some("pre") => pre.push(row),
@@ -371,7 +377,7 @@ ground,flags,move_type,ducked,ducking,duck_amount,duck_speed,stamina,surface_fri
 old_buttons,ladder_n_x,ladder_n_y,ladder_n_z,\
 origin_x_bits,origin_y_bits,origin_z_bits,vel_x_bits,vel_y_bits,vel_z_bits,basevel_x_bits,basevel_y_bits,basevel_z_bits,\
 pitch_bits,yaw_bits,roll_bits,duck_amount_bits,duck_speed_bits,stamina_bits,surface_friction_bits,max_speed_bits,\
-fall_velocity_bits,ladder_n_x_bits,ladder_n_y_bits,ladder_n_z_bits";
+fall_velocity_bits,ladder_n_x_bits,ladder_n_y_bits,ladder_n_z_bits,health,velocity_modifier,weapon";
 
 /// Write rows in the capture format (used for synthetic captures in tests and for our side's dump).
 pub fn write_states(pre: &[Row], post: &[Row]) -> String {
@@ -414,6 +420,9 @@ pub fn write_states(pre: &[Row], post: &[Row]) -> String {
             cells.extend(floats.iter().map(|v| ob(*v)));
             cells.extend(tail.iter().map(|v| ob(*v)));
             cells.extend(lnf.iter().map(|v| ob(*v)));
+            cells.push(oi(r.health.map(i64::from)));
+            cells.push(of(r.velocity_modifier));
+            cells.push(String::new());
             s.push_str(&cells.join(","));
             s.push('\n');
         }

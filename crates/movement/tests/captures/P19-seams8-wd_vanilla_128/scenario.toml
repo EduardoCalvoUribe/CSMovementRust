@@ -1,0 +1,6 @@
+scenario = "P19-seams8-wd_vanilla_128"
+requested_origin = "40.000000 -3983.000000 513.000000"
+requested_yaw = 0.000000
+settle = 64
+geometry = "testlevel"
+level_hash = "2b380c6be821fab4"

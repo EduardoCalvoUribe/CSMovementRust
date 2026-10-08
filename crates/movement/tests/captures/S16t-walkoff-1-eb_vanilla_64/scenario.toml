@@ -1,0 +1,6 @@
+scenario = "S16t-walkoff-1-eb_vanilla_64"
+requested_origin = "2200.000000 -2450.000000 801.000000"
+requested_yaw = 0.000000
+settle = 32
+geometry = "testlevel"
+level_hash = "2b380c6be821fab4"

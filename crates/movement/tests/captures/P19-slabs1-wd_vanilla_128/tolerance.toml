@@ -1,0 +1,5 @@
+# Regression tolerance for this capture (plan §9.6).
+min_verdict = "WITHIN_ULP"
+max_ulp = 4
+eps = 0.001
+promoted_verdict = "WITHIN_ULP"

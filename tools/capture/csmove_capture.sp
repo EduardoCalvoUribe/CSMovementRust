@@ -79,6 +79,10 @@ float g_Yaw;
 char g_Unavailable[512];
 int g_LastCmd;
 bool g_Gap;
+// The run started with a slowdown left from fall damage (m_flVelocityModifier below 1).
+bool g_Slowed;
+// The run started without the knife as the active weapon (speed is the active weapon's: 240 for a pistol).
+bool g_NoKnife;
 int g_Retries;
 
 // Command stream.
@@ -285,6 +289,8 @@ void StartNext()
 	g_Rows.Clear();
 	g_Unavailable[0] = '\0';
 	g_Gap = false;
+	g_Slowed = false;
+	g_NoKnife = false;
 	g_Index = 0;
 	g_Wait = 0;
 	g_State = State_Respawn;
@@ -552,6 +558,9 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 			SetEntPropFloat(client, Prop_Send, "m_flVelocityModifier", 1.0);
 			SetEntityHealth(client, 100);
 			SetEntPropFloat(client, Prop_Send, "m_flStamina", 0.0);
+			// A run that ended in mid-air leaves its fall speed behind: without this the settle lands
+			// with it, takes fall damage, and the next run starts slowed.
+			SetEntPropFloat(client, Prop_Send, "m_flFallVelocity", 0.0);
 		}
 		// Re-applied every settle tick: the slowdown can also be set after the teleport (first run
 		// after the client joins showed a 0.96 modifier at tick 0).
@@ -567,6 +576,19 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 	else
 	{
 		int k = g_Index;
+		if (k == 0 && GetEntPropFloat(client, Prop_Send, "m_flVelocityModifier") < 1.0)
+		{
+			g_Slowed = true;
+		}
+		if (k == 0)
+		{
+			char cls[64];
+			ActiveWeapon(client, cls, sizeof(cls));
+			if (!StrEqual(cls, "weapon_knife") && StrContains(cls, "knife") == -1)
+			{
+				g_NoKnife = true;
+			}
+		}
 		LogRow(client, k, "pre", cmdnum);
 		buttons = g_Buttons[k];
 		vel[0] = g_Fwd[k];
@@ -640,6 +662,16 @@ bool Has(int client, PropType type, const char[] prop)
 	return false;
 }
 
+void ActiveWeapon(int client, char[] cls, int len)
+{
+	int w = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	cls[0] = ' ';
+	if (w != -1 && IsValidEntity(w))
+	{
+		GetEntityClassname(w, cls, len);
+	}
+}
+
 void LogRow(int client, int k, const char[] phase, int cmdnum)
 {
 	float origin[3], velocity[3], basevel[3], eye[3], ladder[3];
@@ -699,7 +731,10 @@ void LogRow(int client, int k, const char[] phase, int cmdnum)
 	for (int i = 0; i < 3; i++) AddFloat(dec, sizeof(dec), lb, sizeof(lb), ladder[i], hasLadder);
 
 	char row[1024];
-	Format(row, sizeof(row), "%s%s%s%s", dec, bits, tail, lb);
+	char cls[64];
+	ActiveWeapon(client, cls, sizeof(cls));
+	Format(row, sizeof(row), "%s%s%s%s,%d,%.9f,%s", dec, bits, tail, lb, GetClientHealth(client),
+		GetEntPropFloat(client, Prop_Send, "m_flVelocityModifier"), cls);
 	g_Rows.PushString(row);
 }
 
@@ -767,6 +802,16 @@ void Finish()
 		Requeue("command number gap");
 		return;
 	}
+	if (g_Slowed)
+	{
+		Requeue("started slowed by fall damage");
+		return;
+	}
+	if (g_NoKnife)
+	{
+		Requeue("knife not active at the start");
+		return;
+	}
 	g_Retries = 0;
 	char dir[PLATFORM_MAX_PATH], path[PLATFORM_MAX_PATH], v[128];
 	BuildPath(Path_SM, dir, sizeof(dir), "data/csmove/results/%s", g_Name);
@@ -774,7 +819,7 @@ void Finish()
 
 	Format(path, sizeof(path), "%s/states.csv", dir);
 	File f = OpenFile(path, "w");
-	f.WriteLine("tick,phase,cmdnum,server_tick,origin_x,origin_y,origin_z,vel_x,vel_y,vel_z,basevel_x,basevel_y,basevel_z,pitch,yaw,roll,ground,flags,move_type,ducked,ducking,duck_amount,duck_speed,stamina,surface_friction,max_speed,fall_velocity,old_buttons,ladder_n_x,ladder_n_y,ladder_n_z,origin_x_bits,origin_y_bits,origin_z_bits,vel_x_bits,vel_y_bits,vel_z_bits,basevel_x_bits,basevel_y_bits,basevel_z_bits,pitch_bits,yaw_bits,roll_bits,duck_amount_bits,duck_speed_bits,stamina_bits,surface_friction_bits,max_speed_bits,fall_velocity_bits,ladder_n_x_bits,ladder_n_y_bits,ladder_n_z_bits");
+	f.WriteLine("tick,phase,cmdnum,server_tick,origin_x,origin_y,origin_z,vel_x,vel_y,vel_z,basevel_x,basevel_y,basevel_z,pitch,yaw,roll,ground,flags,move_type,ducked,ducking,duck_amount,duck_speed,stamina,surface_friction,max_speed,fall_velocity,old_buttons,ladder_n_x,ladder_n_y,ladder_n_z,origin_x_bits,origin_y_bits,origin_z_bits,vel_x_bits,vel_y_bits,vel_z_bits,basevel_x_bits,basevel_y_bits,basevel_z_bits,pitch_bits,yaw_bits,roll_bits,duck_amount_bits,duck_speed_bits,stamina_bits,surface_friction_bits,max_speed_bits,fall_velocity_bits,ladder_n_x_bits,ladder_n_y_bits,ladder_n_z_bits,health,velocity_modifier,weapon");
 	char row[1024];
 	for (int i = 0; i < g_Rows.Length; i++)
 	{

@@ -238,7 +238,12 @@ pub enum EventKind {
     Unduck,
     LadderOn,
     LadderOff,
+    /// Fall damage on this command.
+    Damage,
 }
+
+/// Fall speed above which a landing hurts (`PLAYER_MAX_SAFE_FALL_SPEED`, public SDK 2013).
+pub const MAX_SAFE_FALL_SPEED: f32 = 580.0;
 
 /// Events derived identically from both sides' pre/post rows, so the lists are comparable even
 /// without routine-level hooks on the server (plan §9.4 item 4).
@@ -267,6 +272,15 @@ pub fn derive_events(pre: &[Row], post: &[Row]) -> Vec<(u32, EventKind)> {
         }
         if ladder(a) && !ladder(b) {
             ev.push((t, EventKind::LadderOff));
+        }
+        // Health where it was logged; otherwise (our side, older captures) Source's rule: a landing
+        // whose fall speed, set from -vz at the start of the command, exceeds the safe speed.
+        let hurt = match (a.health, b.health) {
+            (Some(h0), Some(h1)) => h1 < h0,
+            _ => a.ground < 0 && b.ground >= 0 && -a.velocity.z > MAX_SAFE_FALL_SPEED,
+        };
+        if hurt {
+            ev.push((t, EventKind::Damage));
         }
     }
     ev

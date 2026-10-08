@@ -98,9 +98,11 @@ pub fn hotkeys(
         KeyCode::Digit8,
         KeyCode::Digit9,
     ];
+    // Shift reaches areas 10-18.
+    let shift = if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) { 9 } else { 0 };
     for (i, key) in digits.into_iter().enumerate() {
         if keys.just_pressed(key) {
-            if let Some(area) = level.areas.get(i) {
+            if let Some(area) = level.areas.get(i + shift) {
                 sim.teleport(area.spawn);
                 *angles = ViewAngles { pitch: 0.0, yaw: area.yaw };
                 info!("teleport: {}", area.name);

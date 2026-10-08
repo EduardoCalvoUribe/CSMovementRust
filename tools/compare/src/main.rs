@@ -184,6 +184,11 @@ fn cmd_import(results: &Path, captures: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Earlier test levels whose captures still replay on the current one: it only adds brushes away from
+/// every scenario's path (`bcbe1118972ec86f`: before the pixelsurf lanes; `74f75ae5a752549f`: before
+/// the top-down slab lane).
+const EARLIER_LEVELS: [&str; 2] = ["bcbe1118972ec86f", "74f75ae5a752549f"];
+
 /// Captures must replay on the level they were made on: the test level (hash-checked), or a BSP map
 /// given with `--bsp` whose file name matches the captured map name.
 fn check_geometry(cap: &Capture, bsp: Option<&str>) -> Result<(), String> {
@@ -197,7 +202,7 @@ fn check_geometry(cap: &Capture, bsp: Option<&str>) -> Result<(), String> {
     }
     let want = capture::level_hash(&testlevel::describe());
     match cap.scenario.get("level_hash") {
-        Some(h) if h != want => Err(format!("{}: captured on level {h}, current test level is {want}", cap.name())),
+        Some(h) if h != want && !EARLIER_LEVELS.contains(&h) => Err(format!("{}: captured on level {h}, current test level is {want}", cap.name())),
         _ => Ok(()),
     }
 }

@@ -586,7 +586,172 @@ pub fn all(world: &dyn TraceWorld) -> Vec<Scenario> {
         g.hold(C, 6).hold(NONE, 6).hold(C, 6).hold(NONE, 6).secs(C, 2.0).secs(NONE, 0.5);
         true
     });
+    edgebug_thresholds(&mut b);
+
+    // Pixelsurf candidates (P19) [Ref §19]: run along a lane wall off its tower, then press into the
+    // wall while falling past its seams or ledges. Kept only if the hull reaches the wall.
+    for (lane, y) in [("seams8", -4000.0), ("slabs1", -4600.0), ("ledges", -5200.0)] {
+        for (tag, jump, air_yaw, keys) in
+            [("d", true, 0.0, Buttons::RIGHT), ("wd", true, -45.0, W | Buttons::RIGHT), ("fall", false, 0.0, Buttons::RIGHT)]
+        {
+            b.add(&format!("P19-{lane}-{tag}"), &v, "pixelsurf candidate", above(40.0, y + 17.0, 512.0), 0.0, settle, move |g| {
+                let n = g.t(3.0);
+                if jump {
+                    g.run_and_jump_at_edge(W, n);
+                } else {
+                    for _ in 0..n {
+                        if !g.state.on_ground() {
+                            break;
+                        }
+                        g.step(W);
+                    }
+                }
+                g.yaw = air_yaw;
+                let mut touched = false;
+                for _ in 0..g.t(2.5) {
+                    g.step(keys);
+                    touched |= g.state.origin.y - (y + 16.0) < 0.05;
+                    if g.state.on_ground() {
+                        break;
+                    }
+                }
+                g.secs(NONE, 0.3);
+                touched
+            });
+        }
+    }
     b.out
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EdgeOutcome {
+    Edgebug,
+    /// Landed on the platform.
+    Land,
+    /// Fell past the platform without an edgebug.
+    Miss,
+}
+
+impl EdgeOutcome {
+    fn tag(self) -> &'static str {
+        match self {
+            EdgeOutcome::Edgebug => "eb",
+            EdgeOutcome::Land => "land",
+            EdgeOutcome::Miss => "miss",
+        }
+    }
+}
+
+/// Leave the edgebug tower along `yaw` (jumping at its edge, or running off it), then let go of every
+/// key and report what happens at the platform below.
+fn edge_attempt<'w>(g: &Gen<'w>, yaw: f32, run: Buttons, jump: bool) -> (Gen<'w>, EdgeOutcome) {
+    let mut p = g.fork();
+    p.yaw = yaw;
+    let n = p.t(3.0);
+    if jump {
+        p.run_and_jump_at_edge(run, n);
+    } else {
+        for _ in 0..n {
+            if !p.state.on_ground() {
+                break;
+            }
+            p.step(run);
+        }
+    }
+    for _ in 0..p.t(2.5) {
+        if p.step(NONE).edgebug {
+            return (p, EdgeOutcome::Edgebug);
+        }
+        // Past the platform: stop before the fall to the floor, which kills the player on the server.
+        if p.state.origin.z < 290.0 && !p.state.on_ground() {
+            return (p, EdgeOutcome::Miss);
+        }
+        if p.state.on_ground() {
+            let o = if p.state.origin.z > 300.0 { EdgeOutcome::Land } else { EdgeOutcome::Miss };
+            return (p, o);
+        }
+    }
+    (p, EdgeOutcome::Miss)
+}
+
+/// S16t: the edgebug threshold [Ref §14]. For each approach to the edgebug platform, scan the run yaw,
+/// find where the outcome switches between an edgebug and a landing or a miss, and narrow each switch
+/// down to two adjacent `f32` yaws. Both sides become scenarios, so the real game has to agree on
+/// which side of the threshold each run falls.
+fn edgebug_thresholds(b: &mut Builder) {
+    const PER_APPROACH: usize = 3;
+    let approaches = [("jump", W, true), ("walkoff", W, false), ("shift", W | Buttons::WALK, true)];
+    let origin = above(2200.0, -2450.0, 800.0);
+    for rate in [64u32, 128] {
+        let settle = ((0.5 * rate as f32).round() as u32).max(1);
+        let base = Gen::new(b.world, ModeKind::Vanilla, rate, origin, 0.0, settle);
+        for (name, run, jump) in approaches {
+            // The edgebug window is about 0.05 degrees wide: scan coarsely, then finely wherever the
+            // outcome goes straight from landing to missing.
+            let coarse: Vec<f32> = (0..=900).map(|i| i as f32 * 0.05).collect();
+            let coarse_out: Vec<EdgeOutcome> = coarse.iter().map(|&y| edge_attempt(&base, y, run, jump).1).collect();
+            let (mut yaws, mut outcomes) = (Vec::new(), Vec::new());
+            for i in 0..coarse.len() {
+                yaws.push(coarse[i]);
+                outcomes.push(coarse_out[i]);
+                if i + 1 < coarse.len()
+                    && coarse_out[i] != coarse_out[i + 1]
+                    && coarse_out[i] != EdgeOutcome::Edgebug
+                    && coarse_out[i + 1] != EdgeOutcome::Edgebug
+                {
+                    for j in 1..50 {
+                        let y = coarse[i] + (coarse[i + 1] - coarse[i]) * j as f32 / 50.0;
+                        yaws.push(y);
+                        outcomes.push(edge_attempt(&base, y, run, jump).1);
+                    }
+                }
+            }
+            let switches: Vec<usize> = (0..yaws.len() - 1)
+                .filter(|&i| (outcomes[i] == EdgeOutcome::Edgebug) != (outcomes[i + 1] == EdgeOutcome::Edgebug))
+                .collect();
+            if switches.is_empty() {
+                eprintln!("warning: S16t-{name} ({rate}): no edgebug threshold in the yaw scan; skipped");
+                continue;
+            }
+            let picks: Vec<usize> = (0..PER_APPROACH.min(switches.len()))
+                .map(|k| switches[k * switches.len() / PER_APPROACH.min(switches.len())])
+                .collect();
+            for (k, &i) in picks.iter().enumerate() {
+                let (mut lo, mut hi) = (yaws[i], yaws[i + 1]);
+                let lo_eb = outcomes[i] == EdgeOutcome::Edgebug;
+                loop {
+                    let mid = lo + (hi - lo) * 0.5;
+                    if mid <= lo || mid >= hi {
+                        break;
+                    }
+                    if (edge_attempt(&base, mid, run, jump).1 == EdgeOutcome::Edgebug) == lo_eb {
+                        lo = mid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                for yaw in [lo, hi] {
+                    let (mut p, o) = edge_attempt(&base, yaw, run, jump);
+                    // Short, so a run the real game sends past the platform ends before the lethal
+                    // fall to the floor and is compared instead of discarded.
+                    if o != EdgeOutcome::Miss {
+                        p.secs(NONE, 0.1);
+                    }
+                    b.out.push(Scenario {
+                        id: format!("S16t-{name}-{k}-{}", o.tag()),
+                        mode: ModeKind::Vanilla,
+                        tickrate: rate,
+                        origin,
+                        yaw: 0.0,
+                        settle,
+                        cmds: std::mem::take(&mut p.cmds),
+                        isolates: "edgebug threshold (adjacent f32 run yaws)",
+                        map: None,
+                    });
+                }
+            }
+        }
+    }
 }
 
 /// Long jumps on a BSP map (M9 gate): from each runway start, run along `yaw` and jump at the edge,

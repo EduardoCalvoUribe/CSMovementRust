@@ -41,12 +41,14 @@ cargo run -p app --release -- --ghost data\captures\raw\<run>\<capture>   # play
 | G | Toggle debug view (hull, traces, plane normals, wish values, speed graph) |
 | F5 | Start / stop recording (`recordings/`: `.replay` command stream, `.csv` per-tick state, `.final`) |
 | P / . | Pause / single-step one tick |
-| 1–9 | Teleport to a test area (on a BSP map: spawns, then teleport destinations) |
+| 1–9, Shift+1–9 | Teleport to test area 1–9 or 10–18 (on a BSP map: spawns, then teleport destinations) |
 | M | Map browser (type to filter, arrows / Page Up / Page Down to move, Enter or click to load, Esc to close) |
 
 Test areas: flat floor, long-jump runway (gaps 220–290), bhop rows, ledges (18–66), stairs (18, 16, and a
 19 that can't be stepped), wall and corridor, ramps (30–70 degrees), a 60 degree surf ridge, an edgebug
-platform, jumpbug drop towers, and a ladder.
+platform, jumpbug drop towers, a ladder, a low ceiling, a pad far from the origin, and four pixelsurf
+candidate lanes (Shift+5–8: a wall of 8-unit slabs, a wall of 1-unit slabs, a wall with 1/2/4-unit
+ledges, and the 1-unit slabs again in reverse brush order, each beside a 512-unit launch tower).
 
 The map browser lists the test level and every `.bsp` found in `CSMOVE_MAP_DIRS` (a path list), `./maps`,
 and the CS:GO install of each Steam library (`csgo/maps` and its workshop folders). Maps are read in place,
@@ -74,6 +76,8 @@ Results with the current model, as worst verdict per capture against plan §9.9 
 | Collision: walls, creases, stairs, ramps 30-60° (S10-S13) | 27/27 ≤ WITHIN_EPS | 27/27 ≤ WITHIN_EPS | WITHIN_EPS | **Verified** (C) |
 | Duck and ledges (S14, S15) | all ≤ WITHIN_EPS | all ≤ WITHIN_EPS | same outcome, WITHIN_EPS | **Verified** (C) |
 | Edgebug, jumpbug, duckbug (S16, S17) | events identical, S17 BIT_EXACT (after D14) | all ≤ WITHIN_EPS | same event sequence | **Verified** (C) |
+| Edgebug threshold (S16t): adjacent-ULP yaw pairs on each side of every land/edgebug/miss switch, three approaches | 12/12 BIT_EXACT | 12/12 (10 BIT_EXACT) | same side of the threshold, no fall damage | **Verified** (C) after D21, confirmed by a capture generated before it was run |
+| Pixelsurf candidates on stacked box brushes (P19) | no glide, as in our model | same | | **Verified negative** (C): box-brush seams don't pixelsurf (D22). Other geometry untested |
 | Ladders (S18) | WITHIN_EPS | WITHIN_EPS | attach/detach ticks, velocity within 1% | **Verified** (C) |
 | Long jump distance (S19) | WITHIN_EPS | WITHIN_EPS | within 0.05 units | **Verified** (C) |
 | Far from the map origin (S1F, S4F, S7F) | as their near-origin twins | same | | **Verified** (C) |
@@ -84,7 +88,7 @@ Results with the current model, as worst verdict per capture against plan §9.9 
 | Replay determinism | | | | Verified (internal): replay equals live bit for bit |
 
 Reproducibility of the rig itself: 75 scenarios captured in two separate server sessions are
-bit-identical. 59 validated captures are replayed by `cargo test` (`crates/movement/tests/captures/`,
+bit-identical. 113 validated captures are replayed by `cargo test` (`crates/movement/tests/captures/`,
 checked by `tools/compare/tests/captures.rs`).
 
 ## Licence and credits

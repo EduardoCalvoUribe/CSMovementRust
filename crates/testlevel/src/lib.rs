@@ -123,6 +123,49 @@ pub fn describe() -> Level {
     sign(2550.0, -2450.0, 400.0, "Edgebug platform");
     areas.push(Area { name: "Edgebug tower", spawn: on_top(2200.0, -2450.0, 800.0), yaw: 0.0 });
 
+    // Pixelsurf candidates [Ref §19]: long walls beside a 512 launch tower, built from stacked brushes
+    // so they carry the horizontal seams ("wireframes") community setups use, and a wall with thin
+    // ledges. Run along the wall off the tower and strafe into it while falling. Which brush a hull
+    // overlapping several is traced against last decides the hit plane (docs/divergences.md D22), so the
+    // 1-unit slabs come twice: listed bottom-up, and top-down (the slab below the feet last).
+    let mut pixel_areas = Vec::new();
+    let wall = |b: &mut Vec<Brush>, y: f32, z0: f32, z1: f32| b.push(cuboid((400.0, y - 32.0, z0), (2400.0, y, z1)));
+    for (lane, y) in [(0, -4000.0), (1, -4600.0), (2, -5200.0), (3, -5800.0)] {
+        b.push(cuboid((0.0, y, 0.0), (400.0, y + 200.0, 512.0)));
+        match lane {
+            // Seams every 8 units.
+            0 => (0..72).for_each(|i| wall(&mut b, y, 8.0 * i as f32, 8.0 * (i + 1) as f32)),
+            // One-unit slabs between 256 and 384, solid above and below.
+            1 => {
+                wall(&mut b, y, 0.0, 256.0);
+                (256..384).for_each(|z| wall(&mut b, y, z as f32, (z + 1) as f32));
+                wall(&mut b, y, 384.0, 576.0);
+            }
+            // One solid wall with 8-unit-thick ledges 1, 2 and 4 units deep.
+            2 => {
+                wall(&mut b, y, 0.0, 576.0);
+                for (h, d) in [(448.0, 1.0), (384.0, 2.0), (320.0, 4.0), (256.0, 1.0), (192.0, 2.0), (128.0, 4.0)] {
+                    b.push(cuboid((400.0, y, h - 8.0), (2400.0, y + d, h)));
+                }
+            }
+            // Lane 1's slabs listed top-down.
+            _ => {
+                wall(&mut b, y, 384.0, 576.0);
+                (256..384).rev().for_each(|z| wall(&mut b, y, z as f32, (z + 1) as f32));
+                wall(&mut b, y, 0.0, 256.0);
+            }
+        }
+        let text = [
+            "Pixelsurf: seams every 8",
+            "Pixelsurf: 1u slabs 256-384",
+            "Pixelsurf: ledges 1/2/4 deep",
+            "Pixelsurf: 1u slabs, top-down",
+        ][lane];
+        sign(200.0, y + 100.0, 580.0, text);
+        let name = ["Pixelsurf seams 8", "Pixelsurf slabs 1", "Pixelsurf ledges", "Pixelsurf slabs 1 top-down"][lane];
+        pixel_areas.push(Area { name, spawn: on_top(40.0, y + 17.0, 512.0), yaw: 0.0 });
+    }
+
     // Drop towers for duckbug / jumpbug [Ref §15].
     for (i, h) in [128.0, 256.0, 512.0].into_iter().enumerate() {
         let x = 3200.0 + 400.0 * i as f32;
@@ -147,6 +190,8 @@ pub fn describe() -> Level {
     b.push(cuboid((FAR.0 - 1024.0, FAR.1 - 1024.0, -64.0), (FAR.0 + 1024.0, FAR.1 + 1024.0, 0.0)));
     sign(FAR.0, FAR.1 + 200.0, 40.0, "Far pad");
     areas.push(Area { name: "Far pad", spawn: on_top(FAR.0, FAR.1, 0.0), yaw: 0.0 });
+    // Last, so the earlier areas keep their hotkeys.
+    areas.extend(pixel_areas);
 
     Level { brushes: b, signs, areas }
 }
