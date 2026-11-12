@@ -16,7 +16,7 @@ fn replay(t: &ToyCourse) -> (Status, u32, usize) {
     let mut run = CourseRun::new();
     for (i, cmd) in t.solution.iter().enumerate() {
         process_movement(&cfg, mode.as_mut(), &t.course.world, &mut state, cmd, &mut NullObserver, dt);
-        if run.update(&t.course, &state).is_terminal() {
+        if run.update(&t.course, &state, cmd).is_terminal() {
             return (run.status, run.elapsed_ticks, i + 1);
         }
     }

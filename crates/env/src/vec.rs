@@ -53,6 +53,7 @@ impl VecEnv {
             episode_ticks: 0,
             completed_ticks: None,
             distance_to_goal: None,
+            waypoints_reached: 0,
         };
         Ok(Self {
             envs,

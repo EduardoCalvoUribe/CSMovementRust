@@ -163,23 +163,43 @@ impl ObsProvider for Proprioception {
     }
 }
 
-/// Plan §5.2: the end target relative to the player, in the horizontal view frame. Waypoints join this
-/// block when courses carry them (R6).
+/// Plan §5.2: the end target and the next waypoint relative to the player, in the horizontal view frame.
+/// With no waypoint left (or none authored, as on imported maps) the waypoint fields repeat the end
+/// target and `has_waypoint` is 0.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct GoalVector;
 
 impl ObsProvider for GoalVector {
     fn spec(&self) -> BlockSpec {
-        BlockSpec::vector("goal", &["goal_forward", "goal_right", "goal_up", "goal_dist_h"])
+        BlockSpec::vector(
+            "goal",
+            &[
+                "goal_forward",
+                "goal_right",
+                "goal_up",
+                "goal_dist_h",
+                "has_waypoint",
+                "waypoint_forward",
+                "waypoint_right",
+                "waypoint_up",
+                "waypoint_dist_h",
+            ],
+        )
     }
 
     fn write(&self, ctx: &ObsCtx, out: &mut [f32]) {
-        let Some(target) = ctx.course.end.target() else {
-            out.fill(0.0);
-            return;
-        };
-        let d = target.sub(ctx.state.origin);
         let (f, r, u) = ctx.yaw_frame();
-        out.copy_from_slice(&[d.dot(f), d.dot(r), d.dot(u), d.length_2d()]);
+        let rel = |p: Option<Vec3>| match p {
+            Some(p) => {
+                let d = p.sub(ctx.state.origin);
+                [d.dot(f), d.dot(r), d.dot(u), d.length_2d()]
+            }
+            None => [0.0; 4],
+        };
+        let goal = ctx.course.end.target();
+        let wp = ctx.course.waypoints.get(ctx.run.next_waypoint).map(|w| w.pos);
+        let g = rel(goal);
+        let w = rel(wp.or(goal));
+        out.copy_from_slice(&[g[0], g[1], g[2], g[3], flag(wp.is_some()), w[0], w[1], w[2], w[3]]);
     }
 }

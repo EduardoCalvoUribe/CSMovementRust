@@ -47,6 +47,8 @@ pub struct StepInfo {
     pub completed_ticks: Option<u32>,
     /// Straight-line distance from the origin to the end target, if the end has one.
     pub distance_to_goal: Option<f32>,
+    /// Waypoints reached so far this run, of `Course::waypoints.len()`.
+    pub waypoints_reached: usize,
 }
 
 /// Everything that determines how an episode continues (plan §4): sim state, mode-private state, view
@@ -317,6 +319,7 @@ impl Env {
             episode_ticks: self.track.episode_ticks,
             completed_ticks,
             distance_to_goal: self.course.end.target().map(|t| t.sub(self.state.origin).length()),
+            waypoints_reached: self.run.next_waypoint,
         }
     }
 
@@ -340,7 +343,8 @@ impl Env {
         self.recording.cmds.push(cmd);
 
         let prev_status = self.run.status;
-        self.run.update(&self.course, &self.state);
+        let prev_run = self.run;
+        self.run.update(&self.course, &self.state, &cmd);
 
         let t = &mut self.track;
         t.episode_ticks += 1;
@@ -361,6 +365,8 @@ impl Env {
             action,
             prev_status,
             status: self.run.status,
+            prev_run: &prev_run,
+            run: &self.run,
         })
     }
 

@@ -7,7 +7,7 @@ pub mod run;
 pub mod toy;
 pub mod zone;
 
-pub use course::{Course, CourseMeta, EndSpec};
-pub use run::{CourseRun, Status};
-pub use toy::{Stage, ToyCourse};
+pub use course::{eye, Course, CourseMeta, EndSpec, Waypoint, EYE_DUCK, EYE_STAND, USE_RANGE, WAYPOINT_ABOVE};
+pub use run::{use_hits, CourseRun, Status};
+pub use toy::{EndKind, Stage, ToyCourse};
 pub use zone::Zone;

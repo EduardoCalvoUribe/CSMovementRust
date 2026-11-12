@@ -316,13 +316,36 @@ suite was green after each.
   states over 700 steps with 12 envs on mixed toy courses (with rays) and >20 auto-resets; auto-reset
   matches a lone `Env` step for step, final observation and reset seed included. Benchmark in §7.
 
+- **R6 passed, with placeholder `+use` rules.** `EndSpec::Use { entity, target }`: the run completes on a
+  **fresh** `+use` press (held on this command, not the previous one; `CourseRun::use_held`) while running,
+  when a straight zero-size trace from the eye along the view, `USE_RANGE` = 64 long, hits `entity`
+  (`course::use_hits`), checked on the state after the tick's movement. Range, press-vs-hold, the straight
+  trace (Source's use search is more forgiving), and the timing are all placeholders to confirm against the
+  real game (§10.2). The eye (`course::eye`, 64/46) moved from `env` to `course` so both share it.
+  `toy::generate_with_end(stage, seed, EndKind::Button)` adds a 16x32x48 button brush (`BUTTON_ENTITY` = 1)
+  spanning eye height near the end platform's far end; the layout is the same as the `Touch` course, and the
+  `Touch` courses (and R3 reference times) are unchanged. Waypoints are now `Waypoint { pos, radius }`,
+  reached in order while running (`CourseRun::next_waypoint`; within `radius` horizontally, 8 below to 72
+  above; reset with the timer) and never decide the outcome; toy waypoints are block-top centers with radius
+  half the block length + 16. `GoalVector` grew to 9 fields (adds `has_waypoint` and the next waypoint in the
+  view frame). `RayGrid` classes the button brush as `goal`. Rewards (all optional, combine with
+  `SumReward`): `ProgressShaping` (potential `-Course::remaining_route`, `gamma` configurable, default scale
+  0.01 a placeholder), `WaypointBonus`; `RewardCtx` now carries the runs. `StepInfo::waypoints_reached`.
+  Gates in `crates/env/tests/r6.rs`: 5 stages x 100 seeds of button courses are solved by their scripted
+  runs, finishing on a fresh press; holding `+use` never presses, out of range or facing away misses;
+  shaping sums telescope to `scale * (phi_end - phi_start)` on solutions and on random play; waypoints are
+  reached one at a time in order (all of them, except that dropping onto the end platform can complete the
+  `Touch` end before the last one, which the test checks is the reason); the goal block reports the next
+  waypoint; snapshots fork combined rewards.
+
 ### Handoff for the next session
 
-1. **Next is R6** (`Use` end condition, waypoint observations and shaping rewards; `Course::waypoints` exists for toy
-   courses; the goal ray class should then also cover the button entity).
+1. **Next is R7** (BSP -> `Course`): needs a real KZ map on this machine, the mapper naming convention for
+   start/end (§10.3), and the LZMA decision. Ask the user before starting. R8 (Bevy viewer for agent
+   recordings) does not depend on R7 and can go first.
 2. Optional, when wanted: a strafing reference controller, which unlocks the LJ and bhop-chain stages of R3.
-3. **Still open, ask the user when they come up:** whether to use waypoint shaping during training; whether real
-   maps will be available (R7 needs one, and `BspMap::parse` rejects LZMA lumps); the real `+use` range; real
-   values for the per-tick turn limit.
+3. **Still open, ask the user when they come up:** whether to use waypoint shaping during training (it is
+   built and optional); whether real maps will be available (R7 needs one, and `BspMap::parse` rejects LZMA
+   lumps); the real `+use` rules (range, press vs hold, search); real values for the per-tick turn limit.
 4. **Environment notes:** local `main` matches `origin/main` (`b9b99b1`). Local `reinforcement` tracks
    `origin/reinforcement`; push only when the user asks.

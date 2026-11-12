@@ -8,10 +8,6 @@ use movement::{Hull, PlayerState, TraceWorld, Vec3};
 
 use crate::obs::{BlockSpec, ObsCtx, ObsProvider};
 
-/// Eye height above the origin, standing and fully ducked, interpolated by `duck_amount`. Same values as
-/// the app's camera (`crates/app/src/camera.rs`), which marks them as still to confirm against captures.
-pub const EYE_STAND: f32 = 64.0;
-pub const EYE_DUCK: f32 = 46.0;
 
 /// Ground the player can stand on: plane normal z at least this (Source's 0.7) [Ref §6].
 pub const WALKABLE_NORMAL_Z: f32 = 0.7;
@@ -32,7 +28,7 @@ pub enum SurfaceClass {
     /// Downward-facing.
     Ceiling = 4,
     Ladder = 5,
-    /// The end volume (seen through; it is not solid).
+    /// The end volume (seen through; it is not solid), or the end button's brush.
     Goal = 6,
     /// A hazard volume.
     Hazard = 7,
@@ -116,9 +112,9 @@ impl RayGrid {
         }
     }
 
+    /// The eye position rays start from (`course::eye`: 64 standing, 46 ducked).
     pub fn eye(state: &PlayerState) -> Vec3 {
-        let h = EYE_STAND - (EYE_STAND - EYE_DUCK) * state.duck_amount;
-        Vec3::new(state.origin.x, state.origin.y, state.origin.z + h)
+        course::eye(state)
     }
 
     /// Unit direction of the ray at `row` (0 = top) and `col` (0 = left), evenly spaced in angle.
@@ -144,8 +140,14 @@ impl RayGrid {
         let mut hit = if tr.start_solid {
             RayHit { distance: 0.0, class: SurfaceClass::Wall }
         } else if tr.fraction < 1.0 {
-            let ladder = self.detect_ladders && course.world.trace_ladder(eye, end, point).fraction <= tr.fraction;
-            let class = if ladder { SurfaceClass::Ladder } else { SurfaceClass::from_normal(tr.plane_normal) };
+            let button = matches!(course.end, course::EndSpec::Use { entity, .. } if tr.hit_entity == Some(entity));
+            let class = if button {
+                SurfaceClass::Goal
+            } else if self.detect_ladders && course.world.trace_ladder(eye, end, point).fraction <= tr.fraction {
+                SurfaceClass::Ladder
+            } else {
+                SurfaceClass::from_normal(tr.plane_normal)
+            };
             RayHit { distance: tr.fraction, class }
         } else {
             RayHit { distance: 1.0, class: SurfaceClass::None }
@@ -161,8 +163,8 @@ impl RayGrid {
                     }
                 }
             };
-            match &course.end {
-                course::EndSpec::Touch(z) => nearer(z, SurfaceClass::Goal, &mut hit),
+            if let course::EndSpec::Touch(z) = &course.end {
+                nearer(z, SurfaceClass::Goal, &mut hit);
             }
             for z in &course.hazards {
                 nearer(z, SurfaceClass::Hazard, &mut hit);

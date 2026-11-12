@@ -19,11 +19,11 @@
 //!
 //! Randomness is a local SplitMix64 seeded by the caller: same seed and stage, same course.
 
-use movement::trace::DIST_EPSILON;
+use movement::trace::{EntityId, DIST_EPSILON};
 use movement::world::{Brush, PrimitiveWorld, World};
 use movement::{process_movement, tick_interval, Buttons, ModeKind, NullObserver, PlayerState, UserCmd, Vec3};
 
-use crate::course::{Course, CourseMeta, EndSpec};
+use crate::course::{Course, CourseMeta, EndSpec, Waypoint};
 use crate::run::{CourseRun, Status};
 use crate::zone::Zone;
 
@@ -55,6 +55,18 @@ pub enum Stage {
 impl Stage {
     pub const ALL: [Stage; 5] = [Stage::Walk, Stage::Gap, Stage::GapChain, Stage::ShortBlocks, Stage::Heights];
 }
+
+/// How a toy course ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum EndKind {
+    /// The whole end platform top is the end volume.
+    Touch,
+    /// A button near the far end of the end platform, at eye height, pressed with `+use` (`EndSpec::Use`).
+    Button,
+}
+
+/// Entity id of a toy course's end button brush (0 is the world).
+pub const BUTTON_ENTITY: EntityId = EntityId(1);
 
 /// One block of the row, by its x extent and top height.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -100,7 +112,13 @@ const END_LEN: f32 = 256.0;
 /// Height of the start and end zones above a block top.
 const ZONE_HEIGHT: f32 = 128.0;
 
+/// A toy course with the `Touch` end.
 pub fn generate(stage: Stage, seed: u64) -> ToyCourse {
+    generate_with_end(stage, seed, EndKind::Touch)
+}
+
+/// A toy course with the given end. The layout depends only on `stage` and `seed`, not on `end`.
+pub fn generate_with_end(stage: Stage, seed: u64, end_kind: EndKind) -> ToyCourse {
     // Mix the stage into the seed so stages with the same seed differ.
     let mut rng = Rng(seed ^ (stage as u64 + 1).wrapping_mul(0xd6e8feb86659fd93));
     let half_width = rng.int(48, 96) as f32;
@@ -165,18 +183,33 @@ pub fn generate(stage: Stage, seed: u64) -> ToyCourse {
         Vec3::new(start.min_x, -half_width, start.top - 8.0),
         Vec3::new(start.min_x + START_LEN / 2.0, half_width, start.top + ZONE_HEIGHT),
     );
-    let end_zone = Zone::cuboid(
-        Vec3::new(end.min_x, -half_width, end.top - 8.0),
-        Vec3::new(end.max_x, half_width, end.top + ZONE_HEIGHT),
-    );
+    let end_spec = match end_kind {
+        EndKind::Touch => EndSpec::Touch(Zone::cuboid(
+            Vec3::new(end.min_x, -half_width, end.top - 8.0),
+            Vec3::new(end.max_x, half_width, end.top + ZONE_HEIGHT),
+        )),
+        EndKind::Button => {
+            // 16 deep, 32 wide, spanning eye height (64) from 32 to 80 above the platform.
+            let (lo, hi) = (Vec3::new(end.max_x - 48.0, -16.0, end.top + 32.0), Vec3::new(end.max_x - 32.0, 16.0, end.top + 80.0));
+            let mut b = Brush::cuboid(lo, hi);
+            b.entity = BUTTON_ENTITY;
+            world.add(b);
+            let target = Vec3::new((lo.x + hi.x) * 0.5, 0.0, (lo.z + hi.z) * 0.5);
+            EndSpec::Use { entity: BUTTON_ENTITY, target }
+        }
+    };
     let course = Course {
         world: World::Primitive(world),
         spawn: (Vec3::new(start.min_x + 64.0, 0.0, start.top + DIST_EPSILON), 0.0),
         start_zone,
-        end: EndSpec::Touch(end_zone),
+        end: end_spec,
         hazards: Vec::new(),
         kill_z: lowest - 128.0,
-        waypoints: blocks[1..].iter().map(|b| Vec3::new((b.min_x + b.max_x) * 0.5, 0.0, b.top)).collect(),
+        // Block-top centers, reached anywhere over the block.
+        waypoints: blocks[1..]
+            .iter()
+            .map(|b| Waypoint { pos: Vec3::new((b.min_x + b.max_x) * 0.5, 0.0, b.top), radius: (b.max_x - b.min_x) * 0.5 + 16.0 })
+            .collect(),
         meta: CourseMeta { name: format!("toy {stage:?} seed {seed}") },
     };
     let (solution, reference_ticks) = reference_solution(&course, &blocks, stage == Stage::ShortBlocks);
@@ -194,7 +227,8 @@ fn min_len(gap: i32, rise: i32) -> i32 {
 
 /// The reference controller, run in `SOLUTION_MODE` at `SOLUTION_TICKRATE`. It reads only the player state,
 /// so its commands replay identically. Returns the commands up to the finish and the run time, or `None`
-/// if it fell, hit a hazard, or ran out of ticks.
+/// if it fell, hit a hazard, or ran out of ticks. On a `Use` end it walks into the button and taps `+use`
+/// every other tick once on the end platform.
 pub fn reference_solution(course: &Course, blocks: &[Block], jump_on_landing: bool) -> (Vec<UserCmd>, Option<u32>) {
     let mut mode = SOLUTION_MODE.create();
     let cfg = *mode.config();
@@ -216,11 +250,15 @@ pub fn reference_solution(course: &Course, blocks: &[Block], jump_on_landing: bo
                 }
             }
         }
+        let on_end = state.origin.x + 16.0 >= blocks[blocks.len() - 1].min_x;
+        if matches!(course.end, EndSpec::Use { .. }) && on_end && tick % 2 == 0 {
+            buttons.insert(Buttons::USE);
+        }
         prev_jump = buttons.contains(Buttons::JUMP);
         let cmd = UserCmd::from_buttons(tick, angles, buttons);
         process_movement(&cfg, mode.as_mut(), &course.world, &mut state, &cmd, &mut NullObserver, dt);
         cmds.push(cmd);
-        match run.update(course, &state) {
+        match run.update(course, &state, &cmd) {
             Status::Completed => return (cmds, Some(run.elapsed_ticks)),
             Status::Hazard | Status::OutOfBounds => return (cmds, None),
             Status::Idle | Status::Running => {}

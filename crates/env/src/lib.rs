@@ -17,5 +17,5 @@ pub use config::EnvConfig;
 pub use env::{Env, Snapshot, Step, StepInfo, Track};
 pub use obs::{BlockSpec, GoalVector, ObsCtx, ObsProvider, ObsSpec, Proprioception};
 pub use rays::{ClassEncoding, RayGrid, RayHit, SurfaceClass};
-pub use reward::{BaseReward, Reward, RewardCtx};
+pub use reward::{BaseReward, ProgressShaping, Reward, RewardCtx, SumReward, WaypointBonus};
 pub use vec::{episode_seed, VecEnv};

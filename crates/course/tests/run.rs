@@ -37,7 +37,7 @@ fn run(course: &Course, cmds: &[UserCmd]) -> (Vec<(Status, u32)>, Vec<PlayerStat
     let (mut log, mut states) = (Vec::new(), Vec::new());
     for cmd in cmds {
         process_movement(&cfg, mode.as_mut(), &course.world, &mut state, cmd, &mut NullObserver, dt);
-        cr.update(course, &state);
+        cr.update(course, &state, cmd);
         log.push((cr.status, cr.elapsed_ticks));
         states.push(state.clone());
     }
