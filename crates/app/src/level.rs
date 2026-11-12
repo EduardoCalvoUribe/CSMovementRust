@@ -77,6 +77,13 @@ pub fn load(path: Option<&Path>) -> Result<LoadedLevel, String> {
 
 /// An agent episode's course as the level (R8). Rendered like the test level, from the course's brushes.
 pub fn from_episode(view: &crate::episode::EpisodeView) -> Result<LoadedLevel, String> {
+    if let env::CourseSource::Bsp { path, .. } = &view.ep.source {
+        // Render from the map file; collision is the course's (the same parse of the same file).
+        let mut l = load(Some(Path::new(path)))?;
+        l.world = view.course.world.clone();
+        l.info.areas.insert(0, AreaInfo { name: "Episode start".into(), spawn: view.course.spawn.0, yaw: view.course.spawn.1 });
+        return Ok(l);
+    }
     let level = view.level()?;
     let areas = level.areas.iter().map(|a| AreaInfo { name: a.name.to_string(), spawn: a.spawn, yaw: a.yaw }).collect();
     Ok(LoadedLevel {

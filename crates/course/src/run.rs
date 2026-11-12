@@ -4,9 +4,10 @@
 //! state. Time is counted in ticks (seconds = ticks / tickrate), so a completion time is an exact integer.
 //!
 //! Rules:
-//! - The timer starts on the first command whose resulting state is outside the start zone; that command
-//!   counts as tick 1, since the movement it performed is part of the run.
-//! - Returning to the start zone while running resets the timer (and waypoint progress) to idle.
+//! - Zone start: the timer starts on the first command whose resulting state is outside the start zone;
+//!   that command counts as tick 1, since the movement it performed is part of the run. Returning to the
+//!   start zone while running resets the timer (and waypoint progress) to idle.
+//! - Button start: a fresh `+use` press on the start button starts (or restarts) the run at tick 0.
 //! - Each later command adds one tick. The command that finishes the run is included.
 //! - Checks run in this order, so the safest outcome wins a tie: out of bounds, hazard, end.
 //! - The end only counts while the timer is running, so a run cannot finish without leaving the start.
@@ -16,7 +17,7 @@
 use movement::math::angle_vectors;
 use movement::{Buttons, Hull, PlayerState, TraceWorld, UserCmd, Vec3};
 
-use crate::course::{eye, Course, EndSpec, USE_RANGE};
+use crate::course::{eye, Course, EndSpec, StartSpec, USE_RANGE};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
@@ -64,7 +65,6 @@ impl CourseRun {
             return self.status;
         }
         let hull = state.hull();
-        let in_start = course.start_zone.overlaps(state.origin, hull);
 
         if state.origin.z < course.kill_z {
             self.status = Status::OutOfBounds;
@@ -75,26 +75,44 @@ impl CourseRun {
             return self.status;
         }
 
-        match self.status {
-            Status::Idle => {
-                if !in_start {
-                    self.status = Status::Running;
-                    self.elapsed_ticks = 1;
+        let mut started_now = false;
+        match &course.start {
+            StartSpec::Zone(zone) => {
+                let in_start = zone.overlaps(state.origin, hull);
+                match self.status {
+                    Status::Idle => {
+                        if !in_start {
+                            self.status = Status::Running;
+                            self.elapsed_ticks = 1;
+                        }
+                    }
+                    Status::Running => {
+                        if in_start {
+                            self.status = Status::Idle;
+                            self.elapsed_ticks = 0;
+                            self.next_waypoint = 0;
+                        } else {
+                            self.elapsed_ticks += 1;
+                        }
+                    }
+                    _ => unreachable!("terminal states return above"),
                 }
             }
-            Status::Running => {
-                if in_start {
-                    self.status = Status::Idle;
+            StartSpec::Button { entity } => {
+                // The press command is tick 0; each later command adds one, so the run time is the number
+                // of commands from the start press to the end press.
+                if use_pressed && use_hits(course, state, cmd.view_angles) == Some(*entity) {
+                    self.status = Status::Running;
                     self.elapsed_ticks = 0;
                     self.next_waypoint = 0;
-                } else {
+                    started_now = true;
+                } else if self.status == Status::Running {
                     self.elapsed_ticks += 1;
                 }
             }
-            _ => unreachable!("terminal states return above"),
         }
 
-        if self.status == Status::Running {
+        if self.status == Status::Running && !started_now {
             while course.waypoints.get(self.next_waypoint).is_some_and(|w| w.reached_by(state.origin)) {
                 self.next_waypoint += 1;
             }

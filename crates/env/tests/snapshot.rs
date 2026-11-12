@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use course::{Course, CourseMeta, EndSpec, Zone};
+use course::{StartSpec, Course, CourseMeta, EndSpec, Zone};
 use env::{Action, Env, EnvConfig};
 use movement::replay::state_fields;
 use movement::trace::DIST_EPSILON;
@@ -16,7 +16,7 @@ fn course() -> Arc<Course> {
     Arc::new(Course {
         world: World::Primitive(w),
         spawn: (Vec3::new(0.0, 0.0, DIST_EPSILON), 0.0),
-        start_zone: Zone::cuboid(Vec3::new(-64.0, -64.0, -8.0), Vec3::new(64.0, 64.0, 256.0)),
+        start: StartSpec::Zone(Zone::cuboid(Vec3::new(-64.0, -64.0, -8.0), Vec3::new(64.0, 64.0, 256.0))),
         end: EndSpec::Touch(Zone::cuboid(Vec3::new(3000.0, -64.0, -8.0), Vec3::new(3100.0, 64.0, 256.0))),
         hazards: Vec::new(),
         kill_z: -256.0,

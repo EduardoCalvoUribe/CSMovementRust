@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use course::{Course, CourseMeta, EndSpec, Zone};
+use course::{StartSpec, Course, CourseMeta, EndSpec, Zone};
 use env::{Action, Env, EnvConfig};
 use movement::trace::DIST_EPSILON;
 use movement::world::{Brush, PrimitiveWorld, World};
@@ -18,7 +18,7 @@ fn single_env_steps_per_second() {
     let course = Course {
         world: World::Primitive(w),
         spawn: (Vec3::new(0.0, 0.0, DIST_EPSILON), 0.0),
-        start_zone: Zone::cuboid(Vec3::new(-64.0, -64.0, -8.0), Vec3::new(64.0, 64.0, 256.0)),
+        start: StartSpec::Zone(Zone::cuboid(Vec3::new(-64.0, -64.0, -8.0), Vec3::new(64.0, 64.0, 256.0))),
         end: EndSpec::Touch(Zone::cuboid(Vec3::new(5000.0, -64.0, -8.0), Vec3::new(5100.0, 64.0, 256.0))),
         hazards: Vec::new(),
         kill_z: -256.0,

@@ -4,7 +4,7 @@
 //! bit-exact check. Display only: `env::Episode::verify` is the source of truth.
 
 use bevy::prelude::*;
-use course::{Course, CourseRun, EndSpec, Status, Zone};
+use course::{Course, CourseRun, EndSpec, StartSpec, Status, Zone};
 use env::Episode;
 use movement::world::World;
 use movement::{UserCmd, Vec3 as SVec3};
@@ -33,18 +33,19 @@ impl EpisodeView {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let ep = Episode::from_text(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         let name = path.file_name().map_or_else(|| path.display().to_string(), |s| s.to_string_lossy().into_owned());
-        Ok(Self::new(ep, name))
+        Self::new(ep, name)
     }
 
-    pub fn new(ep: Episode, name: String) -> Self {
-        let course = ep.source.build();
-        Self { ep, course, name, cursor: 0, run: CourseRun::new(), hold: 0 }
+    pub fn new(ep: Episode, name: String) -> Result<Self, String> {
+        let course = ep.source.build()?;
+        Ok(Self { ep, course, name, cursor: 0, run: CourseRun::new(), hold: 0 })
     }
 
-    /// The course as a level the app can render: its brushes and one area at the spawn.
+    /// A primitive-world course as a level the app can render: its brushes and one area at the spawn.
+    /// (BSP courses render from the map file; see `level::from_episode`.)
     pub fn level(&self) -> Result<Level, String> {
         let World::Primitive(w) = &self.course.world else {
-            return Err("only primitive-world courses can be viewed so far".into());
+            return Err("not a primitive-world course".into());
         };
         Ok(Level {
             brushes: w.brushes.clone(),
@@ -106,20 +107,34 @@ fn draw_zone(gizmos: &mut Gizmos, z: &Zone, c: Color) {
     }
 }
 
+/// Outline the solid brushes of a brush entity (a button).
+fn draw_entity(gizmos: &mut Gizmos, world: &World, entity: movement::EntityId, c: Color) {
+    match world {
+        World::Primitive(w) => {
+            for b in w.brushes.iter().filter(|b| b.entity == entity) {
+                draw_box(gizmos, b.mins, b.maxs, c);
+            }
+        }
+        World::Bsp(w) => {
+            for b in w.entity_brushes(entity) {
+                draw_box(gizmos, b.mins, b.maxs, c);
+            }
+        }
+    }
+}
+
 pub fn episode_gizmos(view: Option<Res<EpisodeView>>, mut gizmos: Gizmos) {
     let Some(view) = view else { return };
     let c = &view.course;
-    draw_zone(&mut gizmos, &c.start_zone, Color::srgb(0.2, 0.9, 0.3));
+    let green = Color::srgb(0.2, 0.9, 0.3);
+    match &c.start {
+        StartSpec::Zone(z) => draw_zone(&mut gizmos, z, green),
+        StartSpec::Button { entity } => draw_entity(&mut gizmos, &c.world, *entity, green),
+    }
     let gold = Color::srgb(1.0, 0.8, 0.1);
     match &c.end {
         EndSpec::Touch(z) => draw_zone(&mut gizmos, z, gold),
-        EndSpec::Use { entity, .. } => {
-            if let World::Primitive(w) = &c.world {
-                for b in w.brushes.iter().filter(|b| b.entity == *entity) {
-                    draw_box(&mut gizmos, b.mins, b.maxs, gold);
-                }
-            }
-        }
+        EndSpec::Use { entity, .. } => draw_entity(&mut gizmos, &c.world, *entity, gold),
     }
     for z in &c.hazards {
         draw_zone(&mut gizmos, z, Color::srgb(1.0, 0.2, 0.2));
@@ -195,7 +210,7 @@ mod tests {
                 });
             }
             let ep = Episode::from_env(&env, CourseSource::Toy { stage, seed: 3, end });
-            let mut view = EpisodeView::new(ep.clone(), "test".into());
+            let mut view = EpisodeView::new(ep.clone(), "test".into()).unwrap();
             let level = crate::level::from_episode(&view).unwrap();
             let mut sim = crate::sim::Sim::new(level.world, (level.info.areas[0].spawn, level.info.areas[0].yaw));
             for lap in 0..2 {

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use course::{Course, CourseMeta, EndSpec, Status, Zone};
+use course::{StartSpec, Course, CourseMeta, EndSpec, Status, Zone};
 use env::{Action, BaseReward, Env, EnvConfig};
 use movement::replay::{state_fields, Recording};
 use movement::trace::DIST_EPSILON;
@@ -19,7 +19,7 @@ fn flat_course() -> Course {
     Course {
         world: World::Primitive(PrimitiveWorld::flat_floor(0.0)),
         spawn: (Vec3::new(0.0, 0.0, DIST_EPSILON), 0.0),
-        start_zone: zone((-64.0, -64.0, -8.0), (64.0, 64.0, 256.0)),
+        start: StartSpec::Zone(zone((-64.0, -64.0, -8.0), (64.0, 64.0, 256.0))),
         end: EndSpec::Touch(zone((600.0, -64.0, -8.0), (700.0, 64.0, 256.0))),
         hazards: Vec::new(),
         kill_z: -256.0,

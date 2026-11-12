@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use course::{Course, CourseMeta, EndSpec, Zone};
+use course::{StartSpec, Course, CourseMeta, EndSpec, Zone};
 use env::{ClassEncoding, Env, EnvConfig, GoalVector, ObsProvider, Proprioception, RayGrid, SurfaceClass};
 use movement::trace::DIST_EPSILON;
 use movement::world::{Brush, Contents, PrimitiveWorld, RiseDir, World};
@@ -34,7 +34,7 @@ fn scene() -> (Course, Vec<Brush>, Zone, Zone) {
     let course = Course {
         world: World::Primitive(w),
         spawn: (v(0.0, 0.0, DIST_EPSILON), 0.0),
-        start_zone: Zone::cuboid(v(-32.0, -32.0, -8.0), v(32.0, 32.0, 128.0)),
+        start: StartSpec::Zone(Zone::cuboid(v(-32.0, -32.0, -8.0), v(32.0, 32.0, 128.0))),
         end: EndSpec::Touch(goal.clone()),
         hazards: vec![hazard.clone()],
         kill_z: -256.0,

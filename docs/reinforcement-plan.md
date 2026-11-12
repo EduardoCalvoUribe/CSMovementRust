@@ -174,7 +174,15 @@ Which shaping works is an experiment, not a design decision; the env just has to
 
   Without rays one step is ~0.5 us, so rayon's per-step fork/join costs more than the work until there are
   dozens of envs; use many envs per `VecEnv` (or action repeat). With rays the work dominates and 64 envs
-  reach ~4.7x one env. Not yet measured: BSP worlds.
+  reach ~4.7x one env.
+- **Measured (R7, same machine, one env) on kz_longjumps_v4096** (`crates/env/tests/bsp.rs`,
+  `--ignored`): no rays **~434k steps/s**; default rays (8x16, 2048, ladder trace) **~5.7k**; no ladder trace
+  ~8.0k; 1024 range ~11.7k; 512 range ~15.0k; 4x8 at 1024 without ladders ~44k. BSP rays cost far more than
+  toy-course rays because a long ray walks many leaves and the walk has no fraction-based early out (kept
+  on purpose: the order brushes are tested in decides ties, D22). The ladder trace walks the tree a second
+  time. Ray range, resolution, and `detect_ladders` are the knobs. **Open for the user:** an
+  observation-only trace in `movement` with an early out would be much faster, but it is a new `movement`
+  change (results could differ from `trace_hull` only at exact ties, which observations do not care about).
 
 ## 8. Toy courses, curriculum, validation
 
@@ -356,14 +364,38 @@ suite was green after each.
   Note while testing: a one-tick strafe in the air can leave the state unchanged bit for bit (at 250 u/s
   the projected speed is far above the 30 u/s air wish cap), so tamper tests must change more than that.
 
+- **R7: import built and tested on a real map; the gate's "hand-recorded run" has not been done.** A KZ map
+  was on this machine after all (`D:\Programs\csgo_workshop\kz\kz_longjumps_v4096.bsp`, fetched for the M9
+  gate, outside the repo). `course::bsp::from_bsp` / `load`: start and end by the KZ convention GOKZ
+  reads, `func_button` `climb_startbutton` / `climb_endbutton` (**confirmed on that map**, entities 23 and
+  10, both "Use Activates") or `trigger_multiple` `climb_startzone` / `climb_endzone` (from the convention,
+  not seen on a map here); bonus courses noted and ignored; `trigger_hurt` -> hazards; spawn = the player
+  spawn nearest the start; `kill_z` 256 below the lowest face. The **unsupported-entity report** lists
+  teleports, push/gravity triggers, other `trigger_multiple`/`trigger_once` (map logic), unknown triggers,
+  moving or breakable brushes, and water; the import refuses unless `allow_unsupported`.
+  kz_longjumps_v4096 has 7 `trigger_teleport`, so it is refused by default and imports with the override.
+  `Course::start_zone` became `start: StartSpec` (`Zone` or `Button`): a button start begins (or restarts)
+  the run on a fresh `+use` press at tick 0, with the same placeholder `+use` rules as the end. Two
+  read-only accessors were added to `movement`'s `BspWorld` (`entity_brushes`, `has_water`); no sim code
+  changed. Episodes take `CourseSource::Bsp { path, hash, allow_unsupported }` (FNV-1a 64 of the file; a
+  different file is refused), and the viewer renders BSP episodes from the map with both buttons outlined.
+  LZMA lump support was not needed for this map and is not built. Tests: `crates/course/tests/bsp_import.rs`
+  (classification on synthetic entities; the real map is refused with the teleports listed, imports with
+  the override, and pressing its start then end button from in front of each starts and ends a run with
+  the right tick count) and `crates/env/tests/bsp.rs` (random-play episodes on the map verify bit for bit
+  through text, rays see floors and walls, wrong hash refused). Real-map tests print SKIPPED without the
+  map (`CSMOVE_KZ_MAP` overrides the path). **Not done:** a hand-recorded run on a real map completing
+  with the expected time. It needs a person, and on this map the route may rely on the teleports, which
+  are not simulated. A map without teleports would make a cleaner gate.
+
 ### Handoff for the next session
 
 1. **Manual R8 check** (user): `cargo run -p env --example episode -- Heights 7 Button out.episode`, then
    `cargo run -p app --release -- --episode out.episode`; the run should cross the blocks, rings should grey
    out in order, and the HUD should end on `Completed` at the recorded ticks before looping.
-2. **R7** (BSP -> `Course`): needs a real KZ map on this machine, the mapper naming convention for
-   start/end (§10.3), and the LZMA decision. Ask the user before starting. R9 (real-server validation of a
-   toy-course run) needs the CS:GO capture rig from plan §9 and a toy course compiled to a map.
+2. **R7 remainder** (user): a hand-recorded run on a real KZ map, ideally one without teleports, recorded in
+   the app and checked against the in-game time. R9 (real-server validation of a toy-course run) needs the
+   CS:GO capture rig from plan §9 and Steam running.
 2. Optional, when wanted: a strafing reference controller, which unlocks the LJ and bhop-chain stages of R3.
 3. **Still open, ask the user when they come up:** whether to use waypoint shaping during training (it is
    built and optional); whether real maps will be available (R7 needs one, and `BspMap::parse` rejects LZMA

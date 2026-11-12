@@ -6,7 +6,8 @@
 //!
 //! ```text
 //! csmove-episode 1
-//! course toy <Stage> <seed> <Touch|Button>
+//! course toy <Stage> <seed> <Touch|Button>        (or)
+//! course bsp <fnv64 hex> <allow_unsupported 0|1> <path to .bsp>
 //! outcome <Status> <run ticks> <waypoints reached>
 //! final <PlayerState fields, as in replay.rs>
 //! csmove-replay 1
@@ -20,22 +21,33 @@ use movement::{process_movement, tick_interval, NullObserver};
 
 use crate::env::Env;
 
-/// How to rebuild an episode's course. Imported maps join this at R7.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// How to rebuild an episode's course.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CourseSource {
     Toy { stage: Stage, seed: u64, end: EndKind },
+    /// An imported map (`course::bsp`). `hash` is the file's FNV-1a 64; a different file is an error.
+    Bsp { path: String, hash: u64, allow_unsupported: bool },
 }
 
 impl CourseSource {
-    pub fn build(&self) -> Course {
-        match *self {
-            CourseSource::Toy { stage, seed, end } => generate_with_end(stage, seed, end).course,
+    pub fn build(&self) -> Result<Course, String> {
+        match self {
+            CourseSource::Toy { stage, seed, end } => Ok(generate_with_end(*stage, *seed, *end).course),
+            CourseSource::Bsp { path, hash, allow_unsupported } => {
+                let opts = course::bsp::ImportOptions { allow_unsupported: *allow_unsupported };
+                let (course, _, got) = course::bsp::load(std::path::Path::new(path), opts)?;
+                if got != *hash {
+                    return Err(format!("{path}: map hash {got:016x} differs from the episode's {hash:016x}"));
+                }
+                Ok(course)
+            }
         }
     }
 
     pub fn describe(&self) -> String {
         match self {
             CourseSource::Toy { stage, seed, end } => format!("toy {stage:?} seed {seed} ({end:?} end)"),
+            CourseSource::Bsp { path, .. } => format!("map {path}"),
         }
     }
 }
@@ -75,14 +87,14 @@ impl Episode {
     }
 
     /// Rebuild the course and replay the commands with a fresh mode and timer.
-    pub fn replay(&self) -> Replayed {
-        let course = self.source.build();
-        replay_on(&course, &self.recording)
+    pub fn replay(&self) -> Result<Replayed, String> {
+        let course = self.source.build()?;
+        Ok(replay_on(&course, &self.recording))
     }
 
     /// Replay and compare with the recorded outcome and final state, bit for bit.
     pub fn verify(&self) -> Result<String, String> {
-        let r = self.replay();
+        let r = self.replay()?;
         let recorded = Replayed {
             status: self.status,
             run_ticks: self.run_ticks,
@@ -115,9 +127,14 @@ impl Episode {
     }
 
     pub fn to_text(&self) -> String {
-        let CourseSource::Toy { stage, seed, end } = self.source;
+        let course = match &self.source {
+            CourseSource::Toy { stage, seed, end } => format!("toy {stage:?} {seed} {end:?}"),
+            CourseSource::Bsp { path, hash, allow_unsupported } => {
+                format!("bsp {hash:016x} {} {path}", *allow_unsupported as u8)
+            }
+        };
         format!(
-            "csmove-episode 1\ncourse toy {stage:?} {seed} {end:?}\noutcome {:?} {} {}\nfinal {}\n{}",
+            "csmove-episode 1\ncourse {course}\noutcome {:?} {} {}\nfinal {}\n{}",
             self.status,
             self.run_ticks,
             self.waypoints_reached,
@@ -137,6 +154,19 @@ impl Episode {
         for line in lines {
             let f: Vec<&str> = line.split_whitespace().collect();
             match f.first().copied() {
+                Some("course") if f.get(1) == Some(&"bsp") => {
+                    // The path is the rest of the line and may contain spaces.
+                    let mut parts = line.trim_start().splitn(5, char::is_whitespace);
+                    let (_, _, hash, allow, path) = (parts.next(), parts.next(), parts.next(), parts.next(), parts.next());
+                    let hash = hash.and_then(|h| u64::from_str_radix(h, 16).ok()).ok_or_else(|| format!("bad course line `{line}`"))?;
+                    let allow_unsupported = match allow {
+                        Some("0") => false,
+                        Some("1") => true,
+                        _ => return Err(format!("bad course line `{line}`")),
+                    };
+                    let path = path.map(str::trim).filter(|p| !p.is_empty()).ok_or_else(|| format!("bad course line `{line}`"))?;
+                    source = Some(CourseSource::Bsp { path: path.to_string(), hash, allow_unsupported });
+                }
                 Some("course") => {
                     if f.len() != 5 || f[1] != "toy" {
                         return Err(format!("bad course line `{line}`"));

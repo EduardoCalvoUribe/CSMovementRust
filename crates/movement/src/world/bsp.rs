@@ -626,6 +626,19 @@ fn support(n: Vec3, extents: Vec3) -> f32 {
 }
 
 impl BspWorld {
+    /// The solid brushes of one brush entity, at its spawn position. Read-only, for course import
+    /// (docs/reinforcement-plan.md R7); collision does not use it.
+    pub fn entity_brushes(&self, e: EntityId) -> impl Iterator<Item = &Brush> {
+        self.entity_brushes.iter().filter(move |(b, _)| b.entity == e).map(|(b, _)| b)
+    }
+
+    /// Whether any brush in the file has water or slime contents, which the sim does not model.
+    pub fn has_water(&self) -> bool {
+        const CONTENTS_SLIME: u32 = 0x10;
+        const CONTENTS_WATER: u32 = 0x20;
+        self.contents.iter().any(|c| c & (CONTENTS_SLIME | CONTENTS_WATER) != 0)
+    }
+
     /// Brush indices under a model's head node.
     fn model_brushes(&self, head: i32) -> Vec<usize> {
         let mut seen = vec![false; self.brushes.len()];

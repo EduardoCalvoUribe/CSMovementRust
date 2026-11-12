@@ -1,7 +1,7 @@
 //! R0 gate (docs/reinforcement-plan.md §11): the timer and termination rules, driven by scripted commands
 //! through the real movement pipeline in SimpleKZ at 128 Hz.
 
-use course::{Course, CourseMeta, CourseRun, EndSpec, Status, Zone};
+use course::{StartSpec, Course, CourseMeta, CourseRun, EndSpec, Status, Zone};
 use movement::trace::DIST_EPSILON;
 use movement::world::{PrimitiveWorld, World};
 use movement::{process_movement, tick_interval, Buttons, ModeKind, NullObserver, PlayerState, UserCmd, Vec3};
@@ -18,7 +18,7 @@ fn flat_course() -> Course {
     Course {
         world: World::Primitive(PrimitiveWorld::flat_floor(0.0)),
         spawn: (Vec3::new(0.0, 0.0, DIST_EPSILON), 0.0),
-        start_zone: zone((-64.0, -64.0, -8.0), (64.0, 64.0, 256.0)),
+        start: StartSpec::Zone(zone((-64.0, -64.0, -8.0), (64.0, 64.0, 256.0))),
         end: EndSpec::Touch(zone((600.0, -64.0, -8.0), (700.0, 64.0, 256.0))),
         hazards: Vec::new(),
         kill_z: -256.0,
@@ -60,7 +60,7 @@ fn timer_starts_on_the_command_that_leaves_the_start_zone() {
     let c = flat_course();
     let (log, states) = run(&c, &walk(Buttons::FORWARD, 400));
     // Independent check of the first command that ends outside the start zone.
-    let first_out = states.iter().position(|s| !c.start_zone.overlaps(s.origin, s.hull())).unwrap();
+    let first_out = states.iter().position(|s| !c.start_zone().unwrap().overlaps(s.origin, s.hull())).unwrap();
     assert!(first_out > 0, "starts inside the zone");
     assert_eq!(log[first_out - 1].0, Status::Idle);
     assert_eq!(log[first_out], (Status::Running, 1));
@@ -99,13 +99,13 @@ fn returning_to_the_start_zone_resets_the_timer() {
     let first_run = log.iter().position(|&(s, _)| s == Status::Running).expect("leaves the start zone");
     // Independent check: the first command after leaving whose state is back inside the start zone.
     let back_in = (first_run..states.len())
-        .find(|&i| c.start_zone.overlaps(states[i].origin, states[i].hull()))
+        .find(|&i| c.start_zone().unwrap().overlaps(states[i].origin, states[i].hull()))
         .expect("walks back into the start zone");
     assert_eq!(log[back_in - 1].0, Status::Running);
     assert_eq!(log[back_in], (Status::Idle, 0));
     // Walking on out of the far side starts a fresh run at tick 1.
     let out_again = (back_in..states.len())
-        .find(|&i| !c.start_zone.overlaps(states[i].origin, states[i].hull()))
+        .find(|&i| !c.start_zone().unwrap().overlaps(states[i].origin, states[i].hull()))
         .expect("leaves through the far side");
     assert_eq!(log[out_again], (Status::Running, 1));
 }

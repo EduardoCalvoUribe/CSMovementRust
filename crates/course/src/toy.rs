@@ -23,7 +23,7 @@ use movement::trace::{EntityId, DIST_EPSILON};
 use movement::world::{Brush, PrimitiveWorld, World};
 use movement::{process_movement, tick_interval, Buttons, ModeKind, NullObserver, PlayerState, UserCmd, Vec3};
 
-use crate::course::{Course, CourseMeta, EndSpec, Waypoint};
+use crate::course::{Course, CourseMeta, EndSpec, StartSpec, Waypoint};
 use crate::run::{CourseRun, Status};
 use crate::zone::Zone;
 
@@ -201,7 +201,7 @@ pub fn generate_with_end(stage: Stage, seed: u64, end_kind: EndKind) -> ToyCours
     let course = Course {
         world: World::Primitive(world),
         spawn: (Vec3::new(start.min_x + 64.0, 0.0, start.top + DIST_EPSILON), 0.0),
-        start_zone,
+        start: StartSpec::Zone(start_zone),
         end: end_spec,
         hazards: Vec::new(),
         kill_z: lowest - 128.0,

@@ -22,6 +22,16 @@ pub fn eye(state: &PlayerState) -> Vec3 {
     Vec3::new(state.origin.x, state.origin.y, state.origin.z + h)
 }
 
+/// How a run's timer starts.
+#[derive(Clone, Debug)]
+pub enum StartSpec {
+    /// On the first command that ends with the hull outside the zone; re-entering it resets the run.
+    Zone(Zone),
+    /// On a fresh `+use` press whose view trace hits `entity` (a KZ map's `climb_startbutton`); pressing
+    /// it again while running restarts the run. Same placeholder `+use` rules as `EndSpec::Use`.
+    Button { entity: EntityId },
+}
+
 /// How a run ends successfully.
 #[derive(Clone, Debug)]
 pub enum EndSpec {
@@ -74,7 +84,7 @@ pub struct Course {
     pub world: World,
     /// Spawn origin and yaw in degrees.
     pub spawn: (Vec3, f32),
-    pub start_zone: Zone,
+    pub start: StartSpec,
     pub end: EndSpec,
     /// Volumes that end the run as a failure (`trigger_hurt` equivalents).
     pub hazards: Vec<Zone>,
@@ -88,6 +98,14 @@ pub struct Course {
 }
 
 impl Course {
+    /// The start zone, for courses that start by leaving one.
+    pub fn start_zone(&self) -> Option<&Zone> {
+        match &self.start {
+            StartSpec::Zone(z) => Some(z),
+            StartSpec::Button { .. } => None,
+        }
+    }
+
     /// Route length left from `origin` when `next` waypoints have been reached: straight to the next
     /// waypoint, then along the remaining waypoints, then to the end target. 0 once every waypoint is
     /// reached and the course has no end target. A potential for shaping rewards (plan §6); straight-line
