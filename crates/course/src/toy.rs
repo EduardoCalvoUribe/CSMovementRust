@@ -33,6 +33,9 @@ pub const SOLUTION_MODE: ModeKind = ModeKind::SimpleKz;
 pub const SOLUTION_TICKRATE: u32 = 128;
 /// The reference controller gives up after this many ticks.
 pub const SOLUTION_TICK_LIMIT: u32 = 128 * 60;
+/// Largest yaw change per tick a reference solution uses, degrees. Equal to `env::EnvConfig`'s default
+/// `max_yaw_per_tick`, so solutions replay through a default `Env` unclamped.
+pub const SOLUTION_MAX_TURN: f32 = 10.0;
 
 /// Difficulty stages, easiest first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -50,10 +53,15 @@ pub enum Stage {
     ShortBlocks,
     /// Gaps with height changes, up and down.
     Heights,
+    /// One gap of 220-250 units: beyond the 217 an unstrafed jump at 250 u/s reaches, within the ~266 an
+    /// air-strafed one does. The reference solution strafes (`crate::strafe`). (Declared last so the
+    /// other stages keep their seeds; `ALL` lists stages by difficulty.)
+    LongJump,
 }
 
 impl Stage {
-    pub const ALL: [Stage; 5] = [Stage::Walk, Stage::Gap, Stage::GapChain, Stage::ShortBlocks, Stage::Heights];
+    pub const ALL: [Stage; 6] =
+        [Stage::Walk, Stage::Gap, Stage::GapChain, Stage::LongJump, Stage::ShortBlocks, Stage::Heights];
 }
 
 /// How a toy course ends.
@@ -85,6 +93,9 @@ pub struct ToyCourse {
     pub blocks: Vec<Block>,
     /// Reference controller commands, from the spawn state, in `SOLUTION_MODE` at `SOLUTION_TICKRATE`.
     pub solution: Vec<UserCmd>,
+    /// The (yaw, pitch) turn on each solution command, as `env::Action` deltas (zero unless the solution
+    /// strafes). Feeding them to an `Env` reproduces `solution` bit for bit.
+    pub view_deltas: Vec<(f32, f32)>,
     /// Run time of the solution in ticks, or `None` if the controller failed (the R3 gate rejects that).
     pub reference_ticks: Option<u32>,
 }
@@ -149,6 +160,7 @@ pub fn generate_with_end(stage: Stage, seed: u64, end_kind: EndKind) -> ToyCours
             // The end platform is long, so its gap only needs to be reachable from the last landing.
             row.push((rng.int(40, 80), END_LEN as i32, 0));
         }
+        Stage::LongJump => row.push((rng.int(220, 250), END_LEN as i32, 0)),
         Stage::Heights => {
             let mut top = 0;
             let n = rng.int(3, 6);
@@ -212,8 +224,70 @@ pub fn generate_with_end(stage: Stage, seed: u64, end_kind: EndKind) -> ToyCours
             .collect(),
         meta: CourseMeta { name: format!("toy {stage:?} seed {seed}") },
     };
-    let (solution, reference_ticks) = reference_solution(&course, &blocks, stage == Stage::ShortBlocks);
-    ToyCourse { course, stage, seed, blocks, solution, reference_ticks }
+    let (solution, view_deltas, reference_ticks) = if stage == Stage::LongJump {
+        strafe_solution(&course)
+    } else {
+        let (s, r) = reference_solution(&course, &blocks, stage == Stage::ShortBlocks);
+        let d = vec![(0.0, 0.0); s.len()];
+        (s, d, r)
+    };
+    ToyCourse { course, stage, seed, blocks, solution, view_deltas, reference_ticks }
+}
+
+/// Run time of `cmds` on `course` and how many commands it took, if they complete it.
+pub fn evaluate(course: &Course, cmds: &[UserCmd]) -> Option<(u32, usize)> {
+    let mut mode = SOLUTION_MODE.create();
+    let cfg = *mode.config();
+    let dt = tick_interval(SOLUTION_TICKRATE);
+    let mut state = PlayerState::new(course.spawn.0);
+    let mut run = CourseRun::new();
+    for (i, cmd) in cmds.iter().enumerate() {
+        process_movement(&cfg, mode.as_mut(), &course.world, &mut state, cmd, &mut NullObserver, dt);
+        match run.update(course, &state, cmd) {
+            Status::Completed => return Some((run.elapsed_ticks, i + 1)),
+            Status::Hazard | Status::OutOfBounds => return None,
+            Status::Idle | Status::Running => {}
+        }
+    }
+    None
+}
+
+/// The strafing reference solution (one jump, as on `LongJump`): run forward and jump at the edge, then
+/// alternate optimal air strafes. The strafe timing (first strafe length and later length) is searched,
+/// keeping the fastest run that completes; after landing it holds forward (and taps `+use` on a `Use`
+/// end) until done.
+fn strafe_solution(course: &Course) -> (Vec<UserCmd>, Vec<(f32, f32)>, Option<u32>) {
+    use crate::strafe::{Driver, Side};
+    let mut d = Driver::new(&course.world, course.spawn.0, course.spawn.1);
+    if !d.run_and_jump_at_edge(Buttons::FORWARD, SOLUTION_TICK_LIMIT) {
+        return (d.cmds, d.deltas, None);
+    }
+    let use_end = matches!(course.end, EndSpec::Use { .. });
+    let mut best: Option<(u32, Driver<'_, World>)> = None;
+    for half in 3..=12u32 {
+        for first in 1..=half {
+            let mut p = d.fork();
+            p.sync_strafes(Side::Left, first, half, 256);
+            for i in 0..256u32 {
+                let mut b = Buttons::FORWARD;
+                if use_end && i % 2 == 0 {
+                    b.insert(Buttons::USE);
+                }
+                p.step(b);
+            }
+            if let Some((ticks, used)) = evaluate(course, &p.cmds) {
+                if best.as_ref().is_none_or(|(t, _)| ticks < *t) {
+                    p.cmds.truncate(used);
+                    p.deltas.truncate(used);
+                    best = Some((ticks, p));
+                }
+            }
+        }
+    }
+    match best {
+        Some((ticks, p)) => (p.cmds, p.deltas, Some(ticks)),
+        None => (d.cmds, d.deltas, None),
+    }
 }
 
 /// Shortest block that a jump from the previous edge over `gap` (landing `rise` units higher) is sure to

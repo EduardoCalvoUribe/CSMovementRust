@@ -6,17 +6,13 @@ use std::sync::Arc;
 use course::toy::{generate_with_end, EndKind, Stage};
 use course::Status;
 use env::{Action, CourseSource, Env, EnvConfig, Episode};
-use movement::Buttons;
-
-fn key(m: f32) -> i8 {
-    (m > 0.0) as i8 - (m < 0.0) as i8
-}
 
 /// Run `stage`/`seed`/`end` with the reference solution, or with LCG actions if `random` is set.
 fn episode(stage: Stage, seed: u64, end: EndKind, random: bool) -> Episode {
     let toy = generate_with_end(stage, seed, end);
     let mut env = Env::new(Arc::new(toy.course.clone()), EnvConfig { max_episode_ticks: 2000, ..EnvConfig::default() }).unwrap();
     env.reset(seed);
+    let solution = Action::from_toy(&toy);
     let mut x = seed.wrapping_add(99);
     let mut next = move || {
         x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -35,14 +31,8 @@ fn episode(stage: Stage, seed: u64, end: EndKind, random: bool) -> Episode {
                 pitch_delta: (next() % 101) as f32 / 100.0 - 0.5,
             }
         } else {
-            let Some(c) = toy.solution.get(i) else { break };
-            Action {
-                forward: key(c.forward_move),
-                side: key(c.side_move),
-                jump: c.buttons.contains(Buttons::JUMP),
-                use_: c.buttons.contains(Buttons::USE),
-                ..Action::IDLE
-            }
+            let Some(a) = solution.get(i) else { break };
+            *a
         };
         let s = env.step(a);
         if s.info.terminated || s.info.truncated {

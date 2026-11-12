@@ -5,6 +5,7 @@
 pub mod bsp;
 pub mod course;
 pub mod run;
+pub mod strafe;
 pub mod toy;
 pub mod zone;
 

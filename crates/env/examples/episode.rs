@@ -5,13 +5,12 @@
 //! ```
 //!
 //! The episode is the toy course's reference solution run through `Env`, the same path an agent's
-//! actions take. Stages: Walk, Gap, GapChain, ShortBlocks, Heights.
+//! actions take. Stages: Walk, Gap, GapChain, LongJump, ShortBlocks, Heights.
 
 use std::sync::Arc;
 
 use course::toy::{generate_with_end, EndKind, Stage};
 use env::{Action, CourseSource, Env, EnvConfig, Episode};
-use movement::Buttons;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,16 +30,7 @@ fn main() {
     let toy = generate_with_end(stage, seed, end);
     let mut env = Env::new(Arc::new(toy.course.clone()), EnvConfig::default()).expect("env");
     env.reset(seed);
-    let key = |m: f32| (m > 0.0) as i8 - (m < 0.0) as i8;
-    for c in &toy.solution {
-        let a = Action {
-            forward: key(c.forward_move),
-            side: key(c.side_move),
-            jump: c.buttons.contains(Buttons::JUMP),
-            duck: c.buttons.contains(Buttons::DUCK),
-            use_: c.buttons.contains(Buttons::USE),
-            ..Action::IDLE
-        };
+    for a in Action::from_toy(&toy) {
         let s = env.step(a);
         if s.info.terminated || s.info.truncated {
             break;

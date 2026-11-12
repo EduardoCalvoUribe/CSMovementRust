@@ -187,27 +187,20 @@ mod tests {
     use course::toy::{generate_with_end, EndKind, Stage};
     use env::{Action, CourseSource, Env, EnvConfig, Episode};
     use movement::replay::state_fields;
-    use movement::Buttons;
-
     use super::EpisodeView;
 
     /// The viewer's tick path (what `sim::fixed_tick` does with an episode loaded) ends on the episode's
     /// recorded outcome and final state, bit for bit, and loops back to the start.
     #[test]
     fn viewer_replays_episodes_bit_for_bit() {
-        for (stage, end) in [(Stage::Heights, EndKind::Touch), (Stage::ShortBlocks, EndKind::Button)] {
+        for (stage, end) in
+            [(Stage::Heights, EndKind::Touch), (Stage::ShortBlocks, EndKind::Button), (Stage::LongJump, EndKind::Touch)]
+        {
             let toy = generate_with_end(stage, 3, end);
             let mut env = Env::new(Arc::new(toy.course.clone()), EnvConfig::default()).unwrap();
             env.reset(3);
-            for c in &toy.solution {
-                let key = |m: f32| (m > 0.0) as i8 - (m < 0.0) as i8;
-                env.step(Action {
-                    forward: key(c.forward_move),
-                    side: key(c.side_move),
-                    jump: c.buttons.contains(Buttons::JUMP),
-                    use_: c.buttons.contains(Buttons::USE),
-                    ..Action::IDLE
-                });
+            for a in Action::from_toy(&toy) {
+                env.step(a);
             }
             let ep = Episode::from_env(&env, CourseSource::Toy { stage, seed: 3, end });
             let mut view = EpisodeView::new(ep.clone(), "test".into()).unwrap();

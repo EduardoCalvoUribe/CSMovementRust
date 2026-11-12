@@ -107,3 +107,21 @@ fn short_blocks_are_short_and_rejumped_on_landing() {
     let t = generate(Stage::ShortBlocks, 15);
     assert_eq!(reference_solution(&t.course, &t.blocks, false).1, None);
 }
+
+#[test]
+fn long_jump_needs_strafing() {
+    // What the stage claims (see `Stage::LongJump`): the gap is 220-250, the unstrafed controller (hold W,
+    // jump at the edge; reach ~217) cannot clear it, and the strafing solution does, turning at most
+    // `SOLUTION_MAX_TURN` per tick.
+    for seed in 0..60 {
+        let t = generate(Stage::LongJump, seed);
+        let gap = t.blocks[1].min_x - t.blocks[0].max_x;
+        assert!((220.0..=250.0).contains(&gap), "seed {seed}: gap {gap}");
+        assert!(t.reference_ticks.is_some(), "seed {seed}: strafing solution failed");
+        let (_, walk_only) = reference_solution(&t.course, &t.blocks, false);
+        assert_eq!(walk_only, None, "seed {seed}: cleared without strafing");
+        assert!(t.view_deltas.iter().any(|d| d.0 != 0.0), "seed {seed}: the solution never turns");
+        assert!(t.view_deltas.iter().all(|d| d.0.abs() <= course::toy::SOLUTION_MAX_TURN));
+        assert_eq!(t.view_deltas.len(), t.solution.len());
+    }
+}

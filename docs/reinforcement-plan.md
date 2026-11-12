@@ -298,6 +298,22 @@ suite was green after each.
   seeds 0-299: Walk 83, Gap 116-170, GapChain 490-1169, ShortBlocks 422-735, Heights 464-1314 ticks.
   `crates/env/tests/env.rs` also drives toy solutions through `Env` as `Action`s and gets the same times
   and the same commands.
+- **R3 follow-up: strafing reference controller and `LongJump` stage.** `course::strafe::Driver` (after
+  the capture rig's `optimal_yaw` / `run_and_jump_at_edge` / `sync_strafes`) air-strafes at the max-gain
+  angle; with SimpleKZ's air accelerate that is a wish direction perpendicular to the velocity. Measured
+  with it, from a 250 u/s edge jump without prestrafe: hull front lands **~266 units** past the edge (LJ
+  267.0 by the +32 convention, against the 266.70 verified on kz_longjumps_v4096), against 217 unstrafed.
+  `Stage::LongJump` is one 220-250 gap; its solution searches the strafe timing (first and later strafe
+  length) and keeps the fastest finish. Turns are clamped to `SOLUTION_MAX_TURN` (10, `EnvConfig`'s
+  default) and integrated the way `Env` integrates yaw, and every `ToyCourse` now carries `view_deltas`,
+  so `env::Action::from_toy` reproduces any solution through a default `Env` bit for bit. Gates: the 300
+  seeds of `LongJump` join the R3 replay gate (reference 178-188 ticks); `long_jump_needs_strafing` checks
+  gaps, that the unstrafed controller fails every seed, and the turn limit. (`LongJump` is declared last so
+  existing stages keep their seeds and reference times.) **Bhop chains: not built, by finding.** A strafed
+  bhop chain in SimpleKZ tops out at ~404 u/s (its perf speed cap) and covers 250-255 units landing to
+  landing, which is *less* than the 267 one strafed long jump reaches. So no gap length can force a bhop in
+  this mode; a bhop stage could only reward speed, not test whether the agent can bhop. Revisit if a time
+  target (e.g. finish under the reference walking time) is wanted instead of a distance gate.
 
 - **R4 passed.** `env::RayGrid` (`crates/env/src/rays.rs`), an `ObsProvider` writing a `[rows, cols,
   channels]` block named `rays`: per ray the distance as a fraction of `max_distance` (1.0 = nothing) and a
@@ -413,9 +429,11 @@ suite was green after each.
 2. **R7 remainder** (user): a hand-recorded run on a real KZ map, ideally one without teleports, recorded in
    the app and checked against the in-game time.
 3. **R9 server run** (user): blocked on the machine, see the R9 entry above.
-2. Optional, when wanted: a strafing reference controller, which unlocks the LJ and bhop-chain stages of R3.
-3. **Still open, ask the user when they come up:** whether to use waypoint shaping during training (it is
-   built and optional); whether real maps will be available (R7 needs one, and `BspMap::parse` rejects LZMA
-   lumps); the real `+use` rules (range, press vs hold, search); real values for the per-tick turn limit.
-4. **Environment notes:** local `main` matches `origin/main` (`b9b99b1`). Local `reinforcement` tracks
-   `origin/reinforcement`; push only when the user asks.
+4. **R10** (`pyenv`) waits for the trainer choice (§10.5).
+5. **Still open, ask the user when they come up:** whether to use waypoint shaping during training (it is
+   built and optional); more real maps, ideally without teleports (`BspMap::parse` rejects LZMA lumps,
+   untested whether that matters for them); the real `+use` rules (range, press vs hold, search); real
+   values for the per-tick turn limit; whether to add a faster observation-only trace to `movement` for
+   rays on BSP maps (§7).
+6. **Environment notes:** local `main` matches `origin/main` (`b9b99b1`). Local `reinforcement` tracks
+   `origin/reinforcement`.

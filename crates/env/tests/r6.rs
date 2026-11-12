@@ -10,20 +10,6 @@ use env::{
 };
 use movement::{process_movement, tick_interval, Buttons, NullObserver, PlayerState, UserCmd, Vec3};
 
-fn key(m: f32) -> i8 {
-    (m > 0.0) as i8 - (m < 0.0) as i8
-}
-
-fn to_action(c: &UserCmd) -> Action {
-    Action {
-        forward: key(c.forward_move),
-        side: key(c.side_move),
-        jump: c.buttons.contains(Buttons::JUMP),
-        duck: c.buttons.contains(Buttons::DUCK),
-        use_: c.buttons.contains(Buttons::USE),
-        ..Action::IDLE
-    }
-}
 
 /// Run `cmds` through the sim and a `CourseRun`; the status and tick after each command.
 fn run(course: &course::Course, cmds: &[UserCmd]) -> Vec<(Status, u32)> {
@@ -136,7 +122,7 @@ fn progress_shaping_telescopes() {
     for stage in Stage::ALL {
         for seed in 0..10 {
             let t = generate(stage, seed);
-            let solution: Vec<Action> = t.solution.iter().map(to_action).collect();
+            let solution: Vec<Action> = Action::from_toy(&t);
             for acts in [solution, random_actions(seed, 3000)] {
                 let mut env = Env::new(Arc::new(t.course.clone()), EnvConfig::default()).unwrap().with_reward(Box::new(shaping));
                 env.reset(seed);
@@ -168,8 +154,8 @@ fn waypoints_are_reached_in_order_and_rewarded() {
             let mut env = Env::new(Arc::new(t.course.clone()), EnvConfig::default()).unwrap().with_reward(Box::new(reward));
             env.reset(0);
             let (mut total, mut last_reached, mut info) = (0.0, 0, None);
-            for c in &t.solution {
-                let s = env.step(to_action(c));
+            for a in Action::from_toy(&t) {
+                let s = env.step(a);
                 assert!(s.info.waypoints_reached >= last_reached, "progress never goes back on a clean run");
                 assert!(s.info.waypoints_reached <= last_reached + 1 || stage == Stage::Walk, "one at a time");
                 last_reached = s.info.waypoints_reached;
@@ -178,14 +164,15 @@ fn waypoints_are_reached_in_order_and_rewarded() {
             }
             let info = info.unwrap();
             assert_eq!(info.status, Status::Completed);
-            // Every waypoint before the end platform's. That last one can stay unreached: dropping onto the
-            // end platform, the hull enters the Touch volume (128 tall) while the origin is still more than
-            // `WAYPOINT_ABOVE` over the platform, and waypoints never decide the outcome.
+            // Every waypoint before the end platform's. That last one can stay unreached: the Touch end
+            // completes the moment the hull touches the end volume, which can be before the origin is within
+            // the platform's waypoint (dropping from above, more than `WAYPOINT_ABOVE` over it; or arriving
+            // off-centre after a strafed long jump, outside its radius). Waypoints never decide the outcome.
             let n = t.course.waypoints.len();
             assert!(info.waypoints_reached == n || info.waypoints_reached == n - 1, "{stage:?} seed {seed}");
             if info.waypoints_reached == n - 1 {
-                let last = t.blocks[t.blocks.len() - 1].top;
-                assert!(env.state().origin.z > last + course::WAYPOINT_ABOVE, "{stage:?} seed {seed}");
+                assert!(matches!(t.course.end, EndSpec::Touch(_)), "{stage:?} seed {seed}");
+                assert!(!t.course.waypoints[n - 1].reached_by(env.state().origin), "{stage:?} seed {seed}");
             }
             assert_eq!(total, info.waypoints_reached as f32);
         }
@@ -206,8 +193,8 @@ fn goal_block_reports_the_next_waypoint() {
     assert!(g[6].abs() < 1e-3);
     // Once every waypoint is reached, the waypoint fields repeat the goal.
     let mut info = None;
-    for c in &t.solution {
-        info = Some(env.step(to_action(c)));
+    for a in Action::from_toy(&t) {
+        info = Some(env.step(a));
     }
     let s = info.unwrap();
     let g = env.spec().block(&s.obs, "goal").unwrap();
@@ -223,7 +210,7 @@ fn snapshot_forks_combined_rewards() {
     };
     let mut a = Env::new(Arc::new(t.course.clone()), EnvConfig::default()).unwrap().with_reward(reward());
     a.reset(0);
-    let acts: Vec<Action> = t.solution.iter().map(to_action).collect();
+    let acts: Vec<Action> = Action::from_toy(&t);
     for x in &acts[..200] {
         a.step(*x);
     }

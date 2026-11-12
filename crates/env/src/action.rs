@@ -52,3 +52,25 @@ impl Action {
         UserCmd::from_buttons(tick, view_angles, self.buttons())
     }
 }
+
+impl Action {
+    /// The action that sends `cmd`'s keys with the given view turn (`yaw_delta`, `pitch_delta`).
+    pub fn from_cmd(cmd: &UserCmd, (yaw_delta, pitch_delta): (f32, f32)) -> Action {
+        let key = |m: f32| (m > 0.0) as i8 - (m < 0.0) as i8;
+        Action {
+            forward: key(cmd.forward_move),
+            side: key(cmd.side_move),
+            jump: cmd.buttons.contains(Buttons::JUMP),
+            duck: cmd.buttons.contains(Buttons::DUCK),
+            use_: cmd.buttons.contains(Buttons::USE),
+            yaw_delta,
+            pitch_delta,
+        }
+    }
+
+    /// A toy course's reference solution as actions. Through a default `Env` they reproduce the
+    /// solution's commands bit for bit.
+    pub fn from_toy(toy: &course::ToyCourse) -> Vec<Action> {
+        toy.solution.iter().zip(&toy.view_deltas).map(|(c, d)| Action::from_cmd(c, *d)).collect()
+    }
+}

@@ -288,10 +288,6 @@ fn env_block(obs: &[f32]) -> Vec<f32> {
     obs[..21].to_vec()
 }
 
-fn key(m: f32) -> i8 {
-    (m > 0.0) as i8 - (m < 0.0) as i8
-}
-
 #[test]
 fn toy_solutions_complete_through_the_env() {
     use course::toy::{generate, Stage};
@@ -301,18 +297,10 @@ fn toy_solutions_complete_through_the_env() {
             let mut env = new_env(t.course.clone());
             env.reset(seed);
             let mut last = None;
-            for c in &t.solution {
-                let a = Action {
-                    // Not `f32::signum`, which maps 0.0 to 1.0.
-                    forward: key(c.forward_move),
-                    side: key(c.side_move),
-                    jump: c.buttons.contains(movement::Buttons::JUMP),
-                    duck: c.buttons.contains(movement::Buttons::DUCK),
-                    ..Action::IDLE
-                };
+            for (i, a) in Action::from_toy(&t).into_iter().enumerate() {
                 let info = env.step(a).info;
                 if info.terminated || info.truncated {
-                    assert_eq!(c.tick as usize + 1, t.solution.len(), "{stage:?} seed {seed}: ended early {info:?}");
+                    assert_eq!(i + 1, t.solution.len(), "{stage:?} seed {seed}: ended early {info:?}");
                 }
                 last = Some(info);
             }
