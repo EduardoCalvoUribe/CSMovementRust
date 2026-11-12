@@ -41,6 +41,9 @@ impl ModeKind {
 }
 
 pub trait MovementMode {
+    /// An independent copy including all mode-private state, so a run can be snapshotted and resumed
+    /// (`docs/reinforcement-plan.md` §9). Continuing the copy must equal continuing the original.
+    fn fork(&self) -> Box<dyn MovementMode + Send + Sync>;
     fn kind(&self) -> ModeKind;
     fn config(&self) -> &MovementConfig;
     /// The only tickrate this mode allows, if it locks one (SimpleKZ: 128) [Ref §20.2].

@@ -43,6 +43,7 @@ pub fn takeoff_speed(landing_speed: f32, landing_vel_mod: f32) -> f32 {
     }
 }
 
+#[derive(Clone)]
 pub struct SimpleKz {
     cfg: MovementConfig,
     /// `gF_PSBonusSpeed`, `gF_PSVelMod`, `gF_PSVelModLanding`, `gB_PSTurningLeft`, `gF_PSTurnRate`,
@@ -189,6 +190,9 @@ impl Default for SimpleKz {
 }
 
 impl MovementMode for SimpleKz {
+    fn fork(&self) -> Box<dyn MovementMode + Send + Sync> {
+        Box::new(self.clone())
+    }
     fn kind(&self) -> ModeKind {
         ModeKind::SimpleKz
     }

@@ -156,6 +156,10 @@ Which shaping works is an experiment, not a design decision; the env just has to
   `seen` bitset per thread and a coarser ray grid; do not touch trace math (plan §2: operation order is
   behavior).
 - Laptop-scale compute is the assumption, so the headless sim is the bottleneck we control.
+- **Measured (R1, 2026-11-12):** one `Env` on one core of an i7-7700K, release build, primitive world with
+  two brushes, default observation (proprioception + goal): **~2.2M steps/s** (`crates/env/tests/throughput.rs`,
+  run with `cargo test --release -p env --test throughput -- --ignored --nocapture`). Not yet measured: BSP
+  worlds and the ray grid.
 
 ## 8. Toy courses, curriculum, validation
 
@@ -233,29 +237,37 @@ for the earlier captures still being available.
 
 ## 13. Status and handoff
 
-- **R0 written, not yet run.** `crates/course` (zones, `CourseRun` timer, `Touch` end, hazards, kill plane) and
-  7 gate tests in `crates/course/tests/run.rs` compile (`cargo check -p course --tests`). The dev laptop used
-  for this session has no MSVC linker, so `cargo test` has not been run on them. Run `cargo test -p course` on
-  a machine with the Build Tools before treating R0 as passed. The tests compute expected tick counts
-  independently of `CourseRun`; a pinned golden tick count for the straight walk is still to be added once the
-  tests can run.
+All gates below were run with `cargo test` (PowerShell, MSVC Build Tools) on 2026-11-12; the whole workspace
+suite was green after each.
+
+- **R0 passed.** `crates/course`, 8 tests in `crates/course/tests/run.rs`. On first run one test was wrong, not
+  the timer: walking back 400 ticks crosses the start zone (reset) and leaves through its far side (new run),
+  so it now checks the reset tick and the restart at tick 1. Pinned golden: holding forward on the flat course
+  completes on command index 312 with a run time of **259 ticks** (504 units at 250 u/s is ~258).
+- **R1 passed.** `crates/env`: `Action` -> `UserCmd`, clamped per-tick yaw/pitch (`EnvConfig`, placeholder 10
+  deg/tick), `reset(seed)` / `step` and allocation-free `reset_into` / `step_into`, action repeat,
+  terminated vs truncated, `Proprioception` (21 fields) and `GoalVector` (4 fields) providers behind
+  `ObsProvider` with a named `ObsSpec`, `BaseReward` behind `Reward`, and `Recording` export. 12 tests in
+  `crates/env/tests/env.rs`: bit-identical episodes, every intermediate state of the exported recording
+  replays bit for bit (also through the text format), and holding forward reproduces R0's 312 / 259.
+- **R2 passed.** `MovementMode::fork()` (the one planned `movement` change, §9.1; each mode derives `Clone`).
+  `Env::snapshot` / `restore` cover sim state, mode state, view, timer, tracked facts, reward state, and the
+  recording so far. Gates: `crates/movement/tests/mode_fork.rs` (fork continues like the original, all three
+  modes, and resuming the KZ modes with a fresh mode diverges, so the test is sensitive) and
+  `crates/env/tests/snapshot.rs` (restore into the same or a fresh env then continue equals straight
+  through, all three modes, five cut points).
+- Reward magnitudes (`BaseReward::default`: +10 completion, -1/128 per tick) and the turn limit are
+  placeholders for whoever picks the learner; nothing depends on them.
 
 ### Handoff for the next session
 
-1. **Verify R0 first.** From PowerShell (not Git Bash) on a machine with MSVC Build Tools, run
-   `cargo test -p course`. The tests were never run (no linker on the laptop they were written on). If any
-   fail, the likeliest cause is a timing assumption in the tests (the exact tick the hull leaves the start
-   zone), so check the test before the sim. Then add the pinned golden tick count for the straight walk and
-   record it in the test.
-2. **Then run the whole suite** (`cargo test`) to confirm nothing else moved. Only then mark R0 passed here.
-3. **Next is R1** (`crates/env`): `Action` -> `UserCmd` (keys as {-1,0,1}, jump, duck, use, yaw delta with a
-   configured per-tick turn limit), `reset(seed)` / `step(action)`, termination reasons, proprioception and
-   goal-vector providers, the base reward (completion bonus plus per-tick time cost), and `Recording` export.
-   Use `movement::process_movement`, `ModeKind::SimpleKz.create()`, `tick_interval(128)`, and `Course` /
-   `CourseRun` from `crates/course`. Gate: determinism test and exact replay of the exported `Recording`.
-4. **Then R2** (mode `fork()` and snapshot/restore) and R3 (toy generator), per the table in §11.
-5. **Still open, ask the user when they come up:** whether to use waypoint shaping during training; whether real
-   maps will be available (R7 needs one, and `BspMap::parse` rejects LZMA lumps); the real `+use` range.
-6. **Environment notes:** local `main` is stale (old rewritten history). Always branch from `origin/main`.
-   The branch's upstream is currently `origin/main`; push with `git push -u origin reinforcement` when the
-   user asks.
+1. **Next is R3** (`course::toy`): seeded generator with difficulty stages (§8), each with a `Script`
+   solution, gaps chosen from the verified LJ data in the README. Gate: every generated stage is solved by its
+   script; same seed gives the same course. Scripted solutions for bhop stages need autobhop off, so the
+   script must release jump on landing.
+2. Then R4 (raycast provider), R5 (`VecEnv` with rayon; adds the first external dependency to `env`).
+3. **Still open, ask the user when they come up:** whether to use waypoint shaping during training; whether real
+   maps will be available (R7 needs one, and `BspMap::parse` rejects LZMA lumps); the real `+use` range; real
+   values for the per-tick turn limit.
+4. **Environment notes:** local `main` matches `origin/main` (`b9b99b1`). Local `reinforcement` tracks
+   `origin/reinforcement`; push only when the user asks.

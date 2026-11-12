@@ -3,6 +3,7 @@
 use super::{ModeKind, MovementMode};
 use crate::config::MovementConfig;
 
+#[derive(Clone)]
 pub struct Vanilla {
     cfg: MovementConfig,
 }
@@ -20,6 +21,9 @@ impl Default for Vanilla {
 }
 
 impl MovementMode for Vanilla {
+    fn fork(&self) -> Box<dyn MovementMode + Send + Sync> {
+        Box::new(self.clone())
+    }
     fn kind(&self) -> ModeKind {
         ModeKind::Vanilla
     }

@@ -68,6 +68,18 @@ fn timer_starts_on_the_command_that_leaves_the_start_zone() {
     assert_eq!(log[done].1 as usize, done - first_out + 1);
 }
 
+/// Pinned golden: holding forward from spawn on the flat course. The hull leaves the start zone once
+/// origin x > 80 and touches the end once x >= 584, so 504 units at the 250 u/s knife run speed is
+/// ~258 ticks at 128 Hz; the sim gives 259. Any change here means movement or timer rules moved.
+#[test]
+fn straight_walk_golden_tick_count() {
+    let c = flat_course();
+    let (log, _) = run(&c, &walk(Buttons::FORWARD, 600));
+    let done = log.iter().position(|&(s, _)| s == Status::Completed).unwrap();
+    assert_eq!(done, 312, "index of the completing command");
+    assert_eq!(log[done], (Status::Completed, 259));
+}
+
 #[test]
 fn statuses_stop_changing_after_completion() {
     let c = flat_course();
@@ -82,10 +94,19 @@ fn returning_to_the_start_zone_resets_the_timer() {
     let c = flat_course();
     let mut cmds = walk(Buttons::FORWARD, 60);
     cmds.extend(walk(Buttons::BACK, 400));
-    let (log, _) = run(&c, &cmds);
-    assert!(log.iter().any(|&(s, _)| s == Status::Running));
-    let last = *log.last().unwrap();
-    assert_eq!(last, (Status::Idle, 0));
+    let (log, states) = run(&c, &cmds);
+    let first_run = log.iter().position(|&(s, _)| s == Status::Running).expect("leaves the start zone");
+    // Independent check: the first command after leaving whose state is back inside the start zone.
+    let back_in = (first_run..states.len())
+        .find(|&i| c.start_zone.overlaps(states[i].origin, states[i].hull()))
+        .expect("walks back into the start zone");
+    assert_eq!(log[back_in - 1].0, Status::Running);
+    assert_eq!(log[back_in], (Status::Idle, 0));
+    // Walking on out of the far side starts a fresh run at tick 1.
+    let out_again = (back_in..states.len())
+        .find(|&i| !c.start_zone.overlaps(states[i].origin, states[i].hull()))
+        .expect("leaves through the far side");
+    assert_eq!(log[out_again], (Status::Running, 1));
 }
 
 #[test]

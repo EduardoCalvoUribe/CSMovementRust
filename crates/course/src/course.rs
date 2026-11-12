@@ -13,6 +13,15 @@ pub enum EndSpec {
     Touch(Zone),
 }
 
+impl EndSpec {
+    /// The point a goal-relative observation aims at.
+    pub fn target(&self) -> Option<Vec3> {
+        match self {
+            EndSpec::Touch(z) => z.center(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct CourseMeta {
     pub name: String,

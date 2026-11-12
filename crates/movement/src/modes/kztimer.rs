@@ -21,6 +21,7 @@ pub const PERF_SPEED_CAP: f32 = 380.0;
 /// `DUCK_SPEED_NORMAL`.
 pub const DUCK_SPEED_NORMAL: f32 = 8.0;
 
+#[derive(Clone)]
 pub struct KzTimer {
     cfg: MovementConfig,
     /// `gF_PreVelMod`, `gF_PreVelModLastChange`, `gF_RealPreVelMod`, `gI_PreTickCounter`.
@@ -156,6 +157,9 @@ impl Default for KzTimer {
 }
 
 impl MovementMode for KzTimer {
+    fn fork(&self) -> Box<dyn MovementMode + Send + Sync> {
+        Box::new(self.clone())
+    }
     fn kind(&self) -> ModeKind {
         ModeKind::KzTimer
     }
