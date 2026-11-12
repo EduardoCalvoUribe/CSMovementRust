@@ -44,3 +44,17 @@ See `game-plan.md` §3 and §8, and `README.md` for verification status. Current
 green (M5 playtested); §9 capture rig and ghost overlay built and run against CS:GO 1.38.8.1 (see
 `docs/verification.md`), including captures on a community KZ map; M10 (triggers) not started. The
 repository will be public.
+
+## Reinforcement-learning branch (`reinforcement`)
+Work on this branch builds an RL **environment and infrastructure** for training an agent to finish KZ courses
+quickly. Read `docs/reinforcement-plan.md` first (milestones R0-R10, gates, decisions, and its §13 handoff
+with the exact next steps). Rules specific to this work:
+- Do **not** choose or design the RL algorithm or network. The user is surveying SOTA research first and will
+  supply it. Build the environment so that choice stays open.
+- New crates (`course`, `env`, later `pyenv`) are pure Rust on top of `movement`, with no Bevy. Do not change
+  sim arithmetic; the only planned `movement` change is a mode `fork()` for snapshots (plan §9).
+- Decided: SimpleKZ at 128 Hz, autobhop off, `Touch` end condition first, `+use` range is a placeholder (64)
+  until the user confirms it.
+- Observations are pluggable: proprioception, goal-relative vector, and a raycast grid through `TraceWorld`
+  (no pixels). Do not hard-code one.
+- Do not mark a milestone done until its gate tests have actually run; say plainly when they have not.

@@ -231,7 +231,7 @@ for the earlier captures still being available.
 | LZMA lumps block map loading | Decide at R7, using the maps you actually have |
 | Snapshot/restore subtly diverges from straight-through | R2 gate for all modes |
 
-## 13. Status
+## 13. Status and handoff
 
 - **R0 written, not yet run.** `crates/course` (zones, `CourseRun` timer, `Touch` end, hazards, kill plane) and
   7 gate tests in `crates/course/tests/run.rs` compile (`cargo check -p course --tests`). The dev laptop used
@@ -239,3 +239,23 @@ for the earlier captures still being available.
   a machine with the Build Tools before treating R0 as passed. The tests compute expected tick counts
   independently of `CourseRun`; a pinned golden tick count for the straight walk is still to be added once the
   tests can run.
+
+### Handoff for the next session
+
+1. **Verify R0 first.** From PowerShell (not Git Bash) on a machine with MSVC Build Tools, run
+   `cargo test -p course`. The tests were never run (no linker on the laptop they were written on). If any
+   fail, the likeliest cause is a timing assumption in the tests (the exact tick the hull leaves the start
+   zone), so check the test before the sim. Then add the pinned golden tick count for the straight walk and
+   record it in the test.
+2. **Then run the whole suite** (`cargo test`) to confirm nothing else moved. Only then mark R0 passed here.
+3. **Next is R1** (`crates/env`): `Action` -> `UserCmd` (keys as {-1,0,1}, jump, duck, use, yaw delta with a
+   configured per-tick turn limit), `reset(seed)` / `step(action)`, termination reasons, proprioception and
+   goal-vector providers, the base reward (completion bonus plus per-tick time cost), and `Recording` export.
+   Use `movement::process_movement`, `ModeKind::SimpleKz.create()`, `tick_interval(128)`, and `Course` /
+   `CourseRun` from `crates/course`. Gate: determinism test and exact replay of the exported `Recording`.
+4. **Then R2** (mode `fork()` and snapshot/restore) and R3 (toy generator), per the table in §11.
+5. **Still open, ask the user when they come up:** whether to use waypoint shaping during training; whether real
+   maps will be available (R7 needs one, and `BspMap::parse` rejects LZMA lumps); the real `+use` range.
+6. **Environment notes:** local `main` is stale (old rewritten history). Always branch from `origin/main`.
+   The branch's upstream is currently `origin/main`; push with `git push -u origin reinforcement` when the
+   user asks.
