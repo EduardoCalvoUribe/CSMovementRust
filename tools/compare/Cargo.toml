@@ -12,3 +12,4 @@ path = "src/main.rs"
 [dependencies]
 movement = { path = "../../crates/movement" }
 testlevel = { path = "../../crates/testlevel" }
+course = { path = "../../crates/course" }

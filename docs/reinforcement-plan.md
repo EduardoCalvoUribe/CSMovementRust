@@ -388,14 +388,31 @@ suite was green after each.
   with the expected time. It needs a person, and on this map the route may rely on the teleports, which
   are not simulated. A map without teleports would make a cleaner gate.
 
+- **R9: prepared; the server run is blocked.** `compare toy <Stage> <seed> <dir>` writes the toy course as
+  `<dir>/maps/csmove_toy_<stage>_<seed>.vmf` (the same VMF writer as the test level) and its reference
+  solution as a scenario for the capture plugin (`<dir>/scenarios`, with the list file `run.ps1 -List`
+  takes). When `<dir>/maps/<map>.bsp` exists it replays the solution on the compiled map and on the
+  primitive course and requires them to agree bit for bit. Done for GapChain seed 1: compiled with the SDK
+  `vbsp` and `vrad` against the **dedicated server's** game dir (`-game D:\Programs\csgo_ds\csgo`; `vvis
+  -fast` crashed, which only loses visibility data), and the compiled map is **BIT_EXACT** with the
+  primitive course over all 951 commands. **Blocked:** Steam is not running, and the client install at
+  `D:\SteamLibrary\steamapps\common\Counter-Strike Global Offensive` no longer looks like the CS:GO
+  1.38.8.1 legacy client the rig used: its app manifest says beta `public` with an update pending, and
+  `csgo\gameinfo.txt` is missing (likely switched back to CS2). The user has to restore the `csgo_legacy`
+  beta and start Steam; then: copy the BSP to both `maps` folders (`run.ps1 -MapFile` does it), copy the
+  scenario folder and list file into the server's `addons\sourcemod\data\csmove`, run
+  `tools\capture\run.ps1 -Server D:\Programs\csgo_ds -Tickrate 128 -Mode simplekz -MapFile <bsp> -List
+  list_csmove_toy_gapchain_1_simplekz_128.txt -Out <dir>`, and diff with `compare all <captures> --bsp
+  <bsp>`. Gate: `WITHIN_EPS` or better.
+
 ### Handoff for the next session
 
 1. **Manual R8 check** (user): `cargo run -p env --example episode -- Heights 7 Button out.episode`, then
    `cargo run -p app --release -- --episode out.episode`; the run should cross the blocks, rings should grey
    out in order, and the HUD should end on `Completed` at the recorded ticks before looping.
 2. **R7 remainder** (user): a hand-recorded run on a real KZ map, ideally one without teleports, recorded in
-   the app and checked against the in-game time. R9 (real-server validation of a toy-course run) needs the
-   CS:GO capture rig from plan §9 and Steam running.
+   the app and checked against the in-game time.
+3. **R9 server run** (user): blocked on the machine, see the R9 entry above.
 2. Optional, when wanted: a strafing reference controller, which unlocks the LJ and bhop-chain stages of R3.
 3. **Still open, ask the user when they come up:** whether to use waypoint shaping during training (it is
    built and optional); whether real maps will be available (R7 needs one, and `BspMap::parse` rejects LZMA

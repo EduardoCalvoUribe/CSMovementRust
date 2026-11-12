@@ -2,6 +2,8 @@
 //!
 //! ```text
 //! compare map <out.vmf>                       export the test level as a Hammer map
+//! compare toy <Stage> <seed> <dir>            a toy course (RL, R9) as <dir>/maps/*.vmf plus its reference
+//!                                             solution as a scenario in <dir>/scenarios
 //! compare scenarios <dir>                     write the scenario ladder for the server plugin
 //!   `--bsp <map.bsp> --lj x,y,z,yaw ...` writes long-jump scenarios on that map instead (M9 gate)
 //! compare import <results> <captures>         turn plugin output into capture folders
@@ -27,6 +29,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let r = match args.first().map(String::as_str) {
         Some("map") if args.len() == 2 => cmd_map(Path::new(&args[1])),
+        Some("toy") if args.len() == 4 => cmd_toy(&args[1], &args[2], Path::new(&args[3])),
         Some("scenarios") if args.len() >= 2 => cmd_scenarios(Path::new(&args[1]), &args),
         Some("import") if args.len() == 3 => cmd_import(Path::new(&args[1]), Path::new(&args[2])),
         Some("diff") if args.len() >= 2 => {
@@ -78,6 +81,81 @@ fn write(path: &Path, text: &str) -> Result<(), String> {
     std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// R9 (docs/reinforcement-plan.md): a toy course as a Hammer map plus its reference solution as a
+/// scenario, ready for `run.ps1 -MapFile` once the map is compiled.
+fn cmd_toy(stage: &str, seed: &str, dir: &Path) -> Result<(), String> {
+    use course::toy::{generate, Stage};
+    let stage = Stage::ALL
+        .into_iter()
+        .find(|s| format!("{s:?}").eq_ignore_ascii_case(stage))
+        .ok_or_else(|| format!("unknown stage `{stage}` (Walk, Gap, GapChain, ShortBlocks, Heights)"))?;
+    let seed: u64 = seed.parse().map_err(|_| format!("bad seed `{seed}`"))?;
+    let toy = generate(stage, seed);
+    let movement::world::World::Primitive(w) = &toy.course.world else { return Err("toy course is not primitive".into()) };
+    let map = format!("csmove_toy_{}_{seed}", format!("{stage:?}").to_ascii_lowercase());
+    let level = testlevel::Level {
+        brushes: w.brushes.clone(),
+        signs: Vec::new(),
+        areas: vec![testlevel::Area { name: "toy start", spawn: toy.course.spawn.0, yaw: toy.course.spawn.1 }],
+    };
+    write(&dir.join("maps").join(format!("{map}.vmf")), &vmf::generate(&level))?;
+    let o = toy.course.spawn.0;
+    let scenario = scenarios::Scenario {
+        id: format!("T{}", format!("{stage:?}").to_ascii_lowercase()),
+        mode: course::toy::SOLUTION_MODE,
+        tickrate: course::toy::SOLUTION_TICKRATE,
+        // One unit above the floor, as every scenario starts, then settled.
+        origin: movement::Vec3::new(o.x, o.y, o.z.round() + 1.0),
+        yaw: toy.course.spawn.1,
+        settle: 64,
+        cmds: toy.solution.clone(),
+        isolates: "R9: toy-course reference solution",
+        map: Some(map.clone()),
+    };
+    write_scenarios(&dir.join("scenarios"), std::slice::from_ref(&scenario))?;
+    // Once compiled, the map must collide exactly like the course it came from.
+    let bsp = dir.join("maps").join(format!("{map}.bsp"));
+    if bsp.exists() {
+        let compiled = compare::load_world(Some(&bsp))?;
+        let run = |world: &dyn movement::TraceWorld| {
+            let mut mode = course::toy::SOLUTION_MODE.create();
+            let cfg = *mode.config();
+            let mut s = movement::PlayerState::new(toy.course.spawn.0);
+            let dt = movement::tick_interval(course::toy::SOLUTION_TICKRATE);
+            toy.solution
+                .iter()
+                .map(|c| {
+                    movement::process_movement(&cfg, mode.as_mut(), world, &mut s, c, &mut movement::NullObserver, dt);
+                    movement::replay::state_fields(&s)
+                })
+                .collect::<Vec<_>>()
+        };
+        let (a, b) = (run(&toy.course.world), run(&compiled));
+        match a.iter().zip(&b).position(|(x, y)| x != y) {
+            None => println!("compiled {}: BIT_EXACT with the primitive course over {} commands", bsp.display(), a.len()),
+            Some(i) => {
+                return Err(format!(
+                    "compiled {} diverges from the primitive course at command {i}\n primitive: {}\n compiled:  {}",
+                    bsp.display(),
+                    a[i].join(" "),
+                    b[i].join(" ")
+                ))
+            }
+        }
+    }
+    println!(
+        "wrote {}/maps/{map}.vmf and the scenario ({} commands, reference {:?} ticks).\n\
+         Compile with the SDK tools as tools/capture/setup.ps1 does (vbsp, vvis -fast, vrad -fast), copy the\n\
+         scenario folder and list file into the server's csmove data folder, then run\n\
+         tools/capture/run.ps1 -Tickrate 128 -Mode simplekz -MapFile <map>.bsp -List list_{map}_simplekz_128.txt\n\
+         (Steam must be running) and diff with `compare all <captures> --bsp <map>.bsp`.",
+        dir.display(),
+        toy.solution.len(),
+        toy.reference_ticks
+    );
+    Ok(())
+}
+
 fn cmd_map(out: &Path) -> Result<(), String> {
     write(out, &vmf::generate(&testlevel::describe()))?;
     println!("wrote {}", out.display());
@@ -112,8 +190,13 @@ fn cmd_scenarios(dir: &Path, args: &[String]) -> Result<(), String> {
             scenarios::long_jumps(&world, &name, &starts)
         }
     };
+    write_scenarios(dir, &all)
+}
+
+/// Scenario folders (cmds.csv, scenario.cfg) and the per-mode list files the server plugin reads.
+fn write_scenarios(dir: &Path, all: &[scenarios::Scenario]) -> Result<(), String> {
     let mut lists: std::collections::BTreeMap<String, Vec<String>> = Default::default();
-    for s in &all {
+    for s in all {
         let name = s.dir_name();
         let d = dir.join(&name);
         write(&d.join("cmds.csv"), &capture::write_cmds(&s.cmds))?;

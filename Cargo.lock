@@ -2058,6 +2058,7 @@ dependencies = [
 name = "compare"
 version = "0.1.0"
 dependencies = [
+ "course",
  "movement",
  "testlevel",
 ]
