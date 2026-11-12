@@ -13,7 +13,8 @@ use crate::env::Track;
 pub struct BlockSpec {
     pub name: String,
     pub shape: Vec<usize>,
-    /// Per-element names for 1-D blocks, for logging and debugging.
+    /// Names for logging and debugging: one per element for 1-D blocks, one per channel (last axis) for
+    /// grids.
     pub fields: Vec<String>,
 }
 

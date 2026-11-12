@@ -41,6 +41,13 @@ impl Zone {
         self.bounds().map(|(lo, hi)| Vec3::new((lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5, (lo.z + hi.z) * 0.5))
     }
 
+    /// Fraction along the segment `start..end` where it enters the zone, if it does. A segment that starts
+    /// inside the zone does not count as entering it. For observations only.
+    pub fn ray_entry(&self, start: Vec3, end: Vec3) -> Option<f32> {
+        let tr = self.world.trace_hull(start, end, Hull::new(Vec3::ZERO, Vec3::ZERO));
+        (!tr.start_solid && tr.fraction < 1.0).then_some(tr.fraction)
+    }
+
     /// The hull standing at `origin` overlaps the zone. Exact contact counts as overlap, as in brush
     /// tracing.
     pub fn overlaps(&self, origin: Vec3, hull: Hull) -> bool {

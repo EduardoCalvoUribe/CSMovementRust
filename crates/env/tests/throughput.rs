@@ -40,3 +40,38 @@ fn single_env_steps_per_second() {
     let s = t0.elapsed().as_secs_f64();
     println!("THROUGHPUT {n} steps in {s:.2}s = {:.0} steps/s (one core, primitive world, 2 brushes)", n as f64 / s);
 }
+
+/// Default observation plus the default ray grid (8 x 16 = 128 rays) on a toy course.
+#[test]
+#[ignore]
+fn single_env_with_rays_steps_per_second() {
+    use course::toy::{generate, Stage};
+    use env::{GoalVector, Proprioception, RayGrid};
+    let toy = generate(Stage::Heights, 1);
+    let brushes = match &toy.course.world {
+        World::Primitive(w) => w.brushes.len(),
+        _ => unreachable!(),
+    };
+    for (name, grid) in [("default 8x16", RayGrid::default()), ("4x8", RayGrid { rows: 4, cols: 8, ..RayGrid::default() })] {
+        let mut env = Env::new(Arc::new(toy.course.clone()), EnvConfig::default())
+            .unwrap()
+            .with_providers(vec![Box::new(Proprioception), Box::new(GoalVector), Box::new(grid)]);
+        let mut obs = vec![0.0; env.spec().len()];
+        env.reset_into(0, &mut obs);
+        let n = 100_000u32;
+        let t0 = Instant::now();
+        let mut i = 0usize;
+        for _ in 0..n {
+            let c = &toy.solution[i];
+            let a = Action { forward: 1, jump: c.buttons.contains(movement::Buttons::JUMP), ..Action::IDLE };
+            let info = env.step_into(a, &mut obs);
+            i += 1;
+            if info.terminated || info.truncated || i == toy.solution.len() {
+                env.reset_into(0, &mut obs);
+                i = 0;
+            }
+        }
+        let s = t0.elapsed().as_secs_f64();
+        println!("THROUGHPUT rays {name}: {:.0} steps/s ({brushes} brushes)", n as f64 / s);
+    }
+}

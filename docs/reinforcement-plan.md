@@ -158,8 +158,11 @@ Which shaping works is an experiment, not a design decision; the env just has to
 - Laptop-scale compute is the assumption, so the headless sim is the bottleneck we control.
 - **Measured (R1, 2026-11-12):** one `Env` on one core of an i7-7700K, release build, primitive world with
   two brushes, default observation (proprioception + goal): **~2.2M steps/s** (`crates/env/tests/throughput.rs`,
-  run with `cargo test --release -p env --test throughput -- --ignored --nocapture`). Not yet measured: BSP
-  worlds and the ray grid.
+  run with `cargo test --release -p env --test throughput -- --ignored --nocapture`).
+- **Measured (R4, same machine):** with the ray grid on a 6-brush toy course, default 8x16 grid (128 rays,
+  each a world trace plus a ladder trace on hit and two zone traces): **~46k steps/s**; 4x8 grid: **~162k
+  steps/s**. Rays dominate the step cost; resolution, `detect_ladders`, and `see_zones` are the knobs. Not
+  yet measured: BSP worlds.
 
 ## 8. Toy courses, curriculum, validation
 
@@ -276,13 +279,28 @@ suite was green after each.
   `crates/env/tests/env.rs` also drives toy solutions through `Env` as `Action`s and gets the same times
   and the same commands.
 
+- **R4 passed.** `env::RayGrid` (`crates/env/src/rays.rs`), an `ObsProvider` writing a `[rows, cols,
+  channels]` block named `rays`: per ray the distance as a fraction of `max_distance` (1.0 = nothing) and a
+  `SurfaceClass` (none, floor `n.z >= 0.7`, steep, wall `|n.z| < 0.01`, ceiling, ladder, goal, hazard), one-hot
+  or as an index (`ClassEncoding`). Rays are zero-size hull traces through `TraceWorld` (a zero hull is an
+  exact segment trace in `Ray::new`: zero extents and offset; it stops `DIST_EPSILON` short, as Source
+  does). Ladders are told from walls by a second `trace_ladder`; the end volume and hazards are seen through
+  `Zone::ray_entry` up to the first solid hit. Eye height is 64 standing / 46 ducked, interpolated by
+  `duck_amount`, the app camera's values (still marked "to confirm" there). The grid is evenly spaced in
+  angle, row 0 top, column 0 left, and follows the view pitch unless `follow_pitch` is off. Defaults (8x16,
+  120x60 degrees, 2048 range) are placeholders. Gates in `crates/env/tests/rays.rs`: >2500 rays from random
+  eyes and views agree with brute-force ray marching plus bisection on a scene with every class (distance
+  within `DIST_EPSILON / cos` and class exact, edges and grazing rays skipped); straight-down distance
+  equals the eye height; layout orientation; the written block matches its spec in both encodings.
+  Benchmark recorded in §7.
+
 ### Handoff for the next session
 
-1. **Next is R4** (raycast provider + surface classes, §5.3): grid of zero-size-hull traces from the eye
-   through `TraceWorld`. Check `Ray::new` with a zero hull first. Gate: rays agree with brute-force
-   sampling on the primitive world; observation spec test; cost-per-step benchmark recorded in §7.
-2. Then R5 (`VecEnv` with rayon; the first external dependency in `env`), R6 (`Use` end, waypoint
-   observations and shaping rewards; `Course::waypoints` already exists for toy courses).
+1. **Next is R5** (`VecEnv`): N `Env`s stepped in parallel with `rayon` into one preallocated buffer
+   (`step_into` / `reset_into` already exist for this). Adds the first external dependency to `env`; pin its
+   version. Gate: parallel result equals serial result; steps/s recorded in §7.
+2. Then R6 (`Use` end condition, waypoint observations and shaping rewards; `Course::waypoints` exists for toy
+   courses; the goal ray class should then also cover the button entity).
 3. Optional, when wanted: a strafing reference controller, which unlocks the LJ and bhop-chain stages of R3.
 3. **Still open, ask the user when they come up:** whether to use waypoint shaping during training; whether real
    maps will be available (R7 needs one, and `BspMap::parse` rejects LZMA lumps); the real `+use` range; real
