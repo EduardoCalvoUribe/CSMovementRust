@@ -230,3 +230,12 @@ for the earlier captures still being available.
 | Real maps use unsimulated triggers | Importer rejects with a report; M10 work later, scoped by what the maps need |
 | LZMA lumps block map loading | Decide at R7, using the maps you actually have |
 | Snapshot/restore subtly diverges from straight-through | R2 gate for all modes |
+
+## 13. Status
+
+- **R0 written, not yet run.** `crates/course` (zones, `CourseRun` timer, `Touch` end, hazards, kill plane) and
+  7 gate tests in `crates/course/tests/run.rs` compile (`cargo check -p course --tests`). The dev laptop used
+  for this session has no MSVC linker, so `cargo test` has not been run on them. Run `cargo test -p course` on
+  a machine with the Build Tools before treating R0 as passed. The tests compute expected tick counts
+  independently of `CourseRun`; a pinned golden tick count for the straight walk is still to be added once the
+  tests can run.

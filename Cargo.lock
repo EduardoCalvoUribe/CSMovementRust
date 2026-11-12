@@ -2189,6 +2189,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "course"
+version = "0.1.0"
+dependencies = [
+ "movement",
+]
+
+[[package]]
 name = "cpal"
 version = "0.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
