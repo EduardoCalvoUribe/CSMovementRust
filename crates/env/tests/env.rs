@@ -23,6 +23,7 @@ fn flat_course() -> Course {
         end: EndSpec::Touch(zone((600.0, -64.0, -8.0), (700.0, 64.0, 256.0))),
         hazards: Vec::new(),
         kill_z: -256.0,
+        waypoints: Vec::new(),
         meta: CourseMeta { name: "flat".into() },
     }
 }
@@ -285,4 +286,40 @@ fn takeoff_is_tracked() {
 fn env_block(obs: &[f32]) -> Vec<f32> {
     // proprioception is the first block.
     obs[..21].to_vec()
+}
+
+fn key(m: f32) -> i8 {
+    (m > 0.0) as i8 - (m < 0.0) as i8
+}
+
+#[test]
+fn toy_solutions_complete_through_the_env() {
+    use course::toy::{generate, Stage};
+    for stage in Stage::ALL {
+        for seed in 0..20 {
+            let t = generate(stage, seed);
+            let mut env = new_env(t.course.clone());
+            env.reset(seed);
+            let mut last = None;
+            for c in &t.solution {
+                let a = Action {
+                    // Not `f32::signum`, which maps 0.0 to 1.0.
+                    forward: key(c.forward_move),
+                    side: key(c.side_move),
+                    jump: c.buttons.contains(movement::Buttons::JUMP),
+                    duck: c.buttons.contains(movement::Buttons::DUCK),
+                    ..Action::IDLE
+                };
+                let info = env.step(a).info;
+                if info.terminated || info.truncated {
+                    assert_eq!(c.tick as usize + 1, t.solution.len(), "{stage:?} seed {seed}: ended early {info:?}");
+                }
+                last = Some(info);
+            }
+            let info = last.unwrap();
+            assert_eq!(info.status, Status::Completed, "{stage:?} seed {seed}");
+            assert_eq!(info.completed_ticks, t.reference_ticks, "{stage:?} seed {seed}");
+            assert_eq!(env.recording().cmds, t.solution, "{stage:?} seed {seed}");
+        }
+    }
 }

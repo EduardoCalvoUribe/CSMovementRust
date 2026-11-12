@@ -38,5 +38,8 @@ pub struct Course {
     pub hazards: Vec<Zone>,
     /// Origin heights below this end the run as out of bounds.
     pub kill_z: f32,
+    /// Ordered points along the route, authored by the toy generator; empty for imported maps. Used only
+    /// by observations and shaping rewards, never by the run rules.
+    pub waypoints: Vec<Vec3>,
     pub meta: CourseMeta,
 }

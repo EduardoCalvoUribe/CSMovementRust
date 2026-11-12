@@ -22,6 +22,7 @@ fn single_env_steps_per_second() {
         end: EndSpec::Touch(Zone::cuboid(Vec3::new(5000.0, -64.0, -8.0), Vec3::new(5100.0, 64.0, 256.0))),
         hazards: Vec::new(),
         kill_z: -256.0,
+        waypoints: Vec::new(),
         meta: CourseMeta { name: "bench".into() },
     };
     let mut env = Env::new(Arc::new(course), EnvConfig { max_episode_ticks: 2000, ..EnvConfig::default() }).unwrap();

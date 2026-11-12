@@ -258,14 +258,32 @@ suite was green after each.
   through, all three modes, five cut points).
 - Reward magnitudes (`BaseReward::default`: +10 completion, -1/128 per tick) and the turn limit are
   placeholders for whoever picks the learner; nothing depends on them.
+- **R3 passed, with a reduced stage list.** `course::toy::generate(stage, seed)`: a row of floating blocks
+  along +x on integer coordinates, void below (falling is out of bounds), start zone on the back half of the
+  start platform, the whole end platform top as the `Touch` end. `Course` gained `waypoints` (block-top
+  centers; unused by run rules). Stages: `Walk`, `Gap`, `GapChain`, `ShortBlocks`, `Heights` (ups 8-32,
+  drops 16-96). Each course carries a **reference solution**: a `UserCmd` list produced by a simple
+  controller (hold W, jump near the edge on a fresh press, release in the air; on `ShortBlocks` re-jump on
+  landing) run at generation time, plus its reference time in ticks. Deviation from §8: gaps are set from
+  the controller's **measured reach at 250 u/s** (hull front past the edge at landing height: 217 flat, 186
+  at +32, 159 at +48, 260 at -64), not from the README LJ numbers, because no controller here goes faster
+  than 250. **Not yet built:** "long jumps near the mode's limit" and speed-gaining "bhop chains"; both need
+  a prestrafing, air-strafing reference controller to prove them solvable. `ShortBlocks` rewards jumping
+  on the landing (edge-only jumping drifts and overshoots, e.g. seed 15) but does not force speed gain.
+  Gates in `crates/course/tests/toy.rs`: 300 seeds x 5 stages replayed from scratch all complete at their
+  reference time; same seed, same course; seeds vary the layout; integer geometry. Reference times at
+  seeds 0-299: Walk 83, Gap 116-170, GapChain 490-1169, ShortBlocks 422-735, Heights 464-1314 ticks.
+  `crates/env/tests/env.rs` also drives toy solutions through `Env` as `Action`s and gets the same times
+  and the same commands.
 
 ### Handoff for the next session
 
-1. **Next is R3** (`course::toy`): seeded generator with difficulty stages (§8), each with a `Script`
-   solution, gaps chosen from the verified LJ data in the README. Gate: every generated stage is solved by its
-   script; same seed gives the same course. Scripted solutions for bhop stages need autobhop off, so the
-   script must release jump on landing.
-2. Then R4 (raycast provider), R5 (`VecEnv` with rayon; adds the first external dependency to `env`).
+1. **Next is R4** (raycast provider + surface classes, §5.3): grid of zero-size-hull traces from the eye
+   through `TraceWorld`. Check `Ray::new` with a zero hull first. Gate: rays agree with brute-force
+   sampling on the primitive world; observation spec test; cost-per-step benchmark recorded in §7.
+2. Then R5 (`VecEnv` with rayon; the first external dependency in `env`), R6 (`Use` end, waypoint
+   observations and shaping rewards; `Course::waypoints` already exists for toy courses).
+3. Optional, when wanted: a strafing reference controller, which unlocks the LJ and bhop-chain stages of R3.
 3. **Still open, ask the user when they come up:** whether to use waypoint shaping during training; whether real
    maps will be available (R7 needs one, and `BspMap::parse` rejects LZMA lumps); the real `+use` range; real
    values for the per-tick turn limit.

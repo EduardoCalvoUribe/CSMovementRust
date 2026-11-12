@@ -20,6 +20,7 @@ fn course() -> Arc<Course> {
         end: EndSpec::Touch(Zone::cuboid(Vec3::new(3000.0, -64.0, -8.0), Vec3::new(3100.0, 64.0, 256.0))),
         hazards: Vec::new(),
         kill_z: -256.0,
+        waypoints: Vec::new(),
         meta: CourseMeta { name: "snapshot".into() },
     })
 }

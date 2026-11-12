@@ -22,6 +22,7 @@ fn flat_course() -> Course {
         end: EndSpec::Touch(zone((600.0, -64.0, -8.0), (700.0, 64.0, 256.0))),
         hazards: Vec::new(),
         kill_z: -256.0,
+        waypoints: Vec::new(),
         meta: CourseMeta { name: "flat".into() },
     }
 }
