@@ -10,6 +10,7 @@ pub mod env;
 pub mod obs;
 pub mod rays;
 pub mod reward;
+pub mod vec;
 
 pub use action::Action;
 pub use config::EnvConfig;
@@ -17,3 +18,4 @@ pub use env::{Env, Snapshot, Step, StepInfo, Track};
 pub use obs::{BlockSpec, GoalVector, ObsCtx, ObsProvider, ObsSpec, Proprioception};
 pub use rays::{ClassEncoding, RayGrid, RayHit, SurfaceClass};
 pub use reward::{BaseReward, Reward, RewardCtx};
+pub use vec::{episode_seed, VecEnv};

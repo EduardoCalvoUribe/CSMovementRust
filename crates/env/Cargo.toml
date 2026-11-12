@@ -7,3 +7,4 @@ license = "GPL-3.0-or-later"
 [dependencies]
 movement = { path = "../movement" }
 course = { path = "../course" }
+rayon = "=1.11.0"

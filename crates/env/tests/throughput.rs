@@ -75,3 +75,33 @@ fn single_env_with_rays_steps_per_second() {
         println!("THROUGHPUT rays {name}: {:.0} steps/s ({brushes} brushes)", n as f64 / s);
     }
 }
+
+/// `VecEnv` total steps/s by env count, without and with the default ray grid.
+#[test]
+#[ignore]
+fn vec_env_steps_per_second() {
+    use course::toy::{generate, Stage};
+    use env::{GoalVector, ObsProvider, Proprioception, RayGrid, VecEnv};
+    let course = Arc::new(generate(Stage::Heights, 1).course);
+    for rays in [false, true] {
+        for n in [1usize, 4, 8, 16, 64] {
+            let make = || {
+                let mut p: Vec<Box<dyn ObsProvider>> = vec![Box::new(Proprioception), Box::new(GoalVector)];
+                if rays {
+                    p.push(Box::new(RayGrid::default()));
+                }
+                Env::new(course.clone(), EnvConfig { max_episode_ticks: 1000, ..EnvConfig::default() }).unwrap().with_providers(p)
+            };
+            let mut v = VecEnv::new((0..n).map(|_| make()).collect()).unwrap();
+            v.reset(0);
+            let steps = if rays { 400_000 } else { 4_000_000 } / n;
+            let acts: Vec<Action> = (0..n).map(|i| Action { forward: 1, jump: i % 2 == 0, yaw_delta: 0.5, ..Action::IDLE }).collect();
+            let t0 = Instant::now();
+            for _ in 0..steps {
+                v.step(&acts);
+            }
+            let s = t0.elapsed().as_secs_f64();
+            println!("THROUGHPUT vec rays={rays} n={n}: {:.0} env-steps/s", (steps * n) as f64 / s);
+        }
+    }
+}

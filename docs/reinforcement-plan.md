@@ -161,8 +161,20 @@ Which shaping works is an experiment, not a design decision; the env just has to
   run with `cargo test --release -p env --test throughput -- --ignored --nocapture`).
 - **Measured (R4, same machine):** with the ray grid on a 6-brush toy course, default 8x16 grid (128 rays,
   each a world trace plus a ladder trace on hit and two zone traces): **~46k steps/s**; 4x8 grid: **~162k
-  steps/s**. Rays dominate the step cost; resolution, `detect_ladders`, and `see_zones` are the knobs. Not
-  yet measured: BSP worlds.
+  steps/s**. Rays dominate the step cost; resolution, `detect_ladders`, and `see_zones` are the knobs.
+- **Measured (R5, same machine, 4 cores / 8 threads, rayon global pool), total env-steps/s:**
+
+  | envs | no rays | default rays (8x16) |
+  |---|---|---|
+  | 1 | 1.63M | 64k |
+  | 4 | 0.54M | 97k |
+  | 8 | 0.89M | 187k |
+  | 16 | 1.55M | 236k |
+  | 64 | 3.28M | 301k |
+
+  Without rays one step is ~0.5 us, so rayon's per-step fork/join costs more than the work until there are
+  dozens of envs; use many envs per `VecEnv` (or action repeat). With rays the work dominates and 64 envs
+  reach ~4.7x one env. Not yet measured: BSP worlds.
 
 ## 8. Toy courses, curriculum, validation
 
@@ -294,14 +306,21 @@ suite was green after each.
   equals the eye height; layout orientation; the written block matches its spec in both encodings.
   Benchmark recorded in §7.
 
+- **R5 passed.** `env::VecEnv` (`crates/env/src/vec.rs`), the first external dependency in `env`: `rayon =
+  "=1.11.0"`. N envs (same observation spec, courses may differ) step into one env-major observation buffer
+  allocated once, plus a `final_obs` buffer holding the last observation of any episode that just ended.
+  Auto-reset (default on) resets a finished env right away with seed `episode_seed(base, env, episode)`, so
+  results never depend on threads; `with_auto_reset(false)` + `reset_one` for manual control;
+  `with_threads(n)` for a private pool; `serial()` for comparison. Gates in `crates/env/tests/vec.rs`: global
+  pool, a 3-thread pool, and serial give bit-identical observations, final observations, infos, and end
+  states over 700 steps with 12 envs on mixed toy courses (with rays) and >20 auto-resets; auto-reset
+  matches a lone `Env` step for step, final observation and reset seed included. Benchmark in §7.
+
 ### Handoff for the next session
 
-1. **Next is R5** (`VecEnv`): N `Env`s stepped in parallel with `rayon` into one preallocated buffer
-   (`step_into` / `reset_into` already exist for this). Adds the first external dependency to `env`; pin its
-   version. Gate: parallel result equals serial result; steps/s recorded in §7.
-2. Then R6 (`Use` end condition, waypoint observations and shaping rewards; `Course::waypoints` exists for toy
+1. **Next is R6** (`Use` end condition, waypoint observations and shaping rewards; `Course::waypoints` exists for toy
    courses; the goal ray class should then also cover the button entity).
-3. Optional, when wanted: a strafing reference controller, which unlocks the LJ and bhop-chain stages of R3.
+2. Optional, when wanted: a strafing reference controller, which unlocks the LJ and bhop-chain stages of R3.
 3. **Still open, ask the user when they come up:** whether to use waypoint shaping during training; whether real
    maps will be available (R7 needs one, and `BspMap::parse` rejects LZMA lumps); the real `+use` range; real
    values for the per-tick turn limit.
