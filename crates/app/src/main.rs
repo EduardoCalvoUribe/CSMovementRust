@@ -3,8 +3,11 @@
 //! `csmove --check <file.replay>` replays a recording headlessly and compares it with the live run.
 //! `csmove --ghost <capture>` plays a real-server capture with the captured hull drawn as a ghost.
 //! `csmove --map <file.bsp>` starts on a BSP map instead of the test level; `M` in game picks maps.
+//! `csmove --episode <file.episode>` replays an agent episode on its own course (docs/reinforcement-plan.md
+//! R8); `csmove --check-episode <file.episode>` checks it headlessly, bit for bit.
 
 mod camera;
+mod episode;
 mod ghost;
 mod hud;
 mod input;
@@ -20,8 +23,10 @@ use bevy::window::PresentMode;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() == 3 && args[1] == "--check" {
-        match record::check(std::path::Path::new(&args[2])) {
+    if args.len() == 3 && (args[1] == "--check" || args[1] == "--check-episode") {
+        let path = std::path::Path::new(&args[2]);
+        let result = if args[1] == "--check" { record::check(path) } else { episode::check(path) };
+        match result {
             Ok(msg) => {
                 println!("{msg}");
                 return;
@@ -33,14 +38,26 @@ fn main() {
         }
     }
 
-    let map_arg = args.iter().position(|a| a == "--map").and_then(|i| args.get(i + 1)).map(std::path::PathBuf::from);
-    let loaded = level::load(map_arg.as_deref()).unwrap_or_else(|e| {
+    let fail = |e: String| -> ! {
         eprintln!("{e}");
         std::process::exit(1)
-    });
+    };
+    let mut episode = if args.len() == 3 && args[1] == "--episode" {
+        Some(episode::EpisodeView::load(std::path::Path::new(&args[2])).unwrap_or_else(|e| fail(e)))
+    } else {
+        None
+    };
+    let map_arg = args.iter().position(|a| a == "--map").and_then(|i| args.get(i + 1)).map(std::path::PathBuf::from);
+    let loaded = match &episode {
+        Some(v) => level::from_episode(v).unwrap_or_else(|e| fail(e)),
+        None => level::load(map_arg.as_deref()).unwrap_or_else(|e| fail(e)),
+    };
     let first = &loaded.info.areas[0];
     let spawn = (first.spawn, first.yaw);
     let mut sim = sim::Sim::new(loaded.world, spawn);
+    if let Some(v) = &mut episode {
+        v.reset(&mut sim);
+    }
     let ghost = if args.len() == 3 && args[1] == "--ghost" {
         let mut g = ghost::Ghost::load(std::path::Path::new(&args[2])).unwrap_or_else(|e| {
             eprintln!("{e}");
@@ -59,6 +76,9 @@ fn main() {
     let mut app = App::new();
     if let Some(g) = ghost {
         app.insert_resource(g);
+    }
+    if let Some(v) = episode {
+        app.insert_resource(v);
     }
     app
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -90,7 +110,8 @@ fn main() {
         .add_systems(FixedUpdate, sim::fixed_tick)
         .add_systems(
             Update,
-            (camera::update_camera, camera::update_signs, hud::update_hud, hud::debug_gizmos, ghost::ghost_gizmos).chain(),
+            (camera::update_camera, camera::update_signs, hud::update_hud, hud::debug_gizmos, ghost::ghost_gizmos, episode::episode_gizmos)
+                .chain(),
         )
         .add_systems(Update, (maps::menu_clicks, maps::load_requested, maps::draw_menu).chain())
         .run();

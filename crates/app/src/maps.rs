@@ -299,12 +299,17 @@ pub fn load_requested(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     ghost: Option<Res<crate::ghost::Ghost>>,
+    episode: Option<Res<crate::episode::EpisodeView>>,
     mut cursor: Single<&mut CursorOptions>,
 ) {
     let Some(path) = menu.request.take() else { return };
     menu.dirty = true;
     if ghost.is_some() {
         menu.status = "a ghost run uses the test level; maps can't change".into();
+        return;
+    }
+    if episode.is_some() {
+        menu.status = "an episode replays on its own course; maps can't change".into();
         return;
     }
     match level::load(path.as_deref()) {

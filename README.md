@@ -24,6 +24,9 @@ cargo run -p app --release       # the game
 cargo run -p app --release -- --map <file>.bsp   # start on a BSP map instead of the test level
 cargo run -p app --release -- --check recordings\<file>.replay   # headless replay vs live run
 cargo run -p app --release -- --ghost data\captures\raw\<run>\<capture>   # play a real-server capture as a ghost
+cargo run -p env --example episode -- Heights 7 Button out.episode   # write a toy-course episode (RL, docs/reinforcement-plan.md)
+cargo run -p app --release -- --episode out.episode         # watch an agent episode on its course
+cargo run -p app --release -- --check-episode out.episode   # headless bit-exact check of an episode
 ```
 
 ## Controls

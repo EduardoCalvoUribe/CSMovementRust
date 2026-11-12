@@ -177,17 +177,33 @@ impl Sim {
 }
 
 /// FixedUpdate: build one command from the current input and run it. With a ghost capture loaded, the
-/// capture's commands drive the sim instead, looping from its recorded start.
+/// capture's commands drive the sim instead, looping from its recorded start; an agent episode does the
+/// same.
 pub fn fixed_tick(
     mut sim: ResMut<Sim>,
     mut angles: ResMut<ViewAngles>,
     mut input: ResMut<HeldInput>,
     ghost: Option<ResMut<crate::ghost::Ghost>>,
+    episode: Option<ResMut<crate::episode::EpisodeView>>,
 ) {
     if sim.paused && !sim.step_once {
         return;
     }
     sim.step_once = false;
+    if let Some(mut v) = episode {
+        let Some(cmd) = v.next_cmd() else {
+            if v.hold_done() {
+                v.reset(&mut sim);
+            }
+            return;
+        };
+        *angles = ViewAngles { pitch: cmd.view_angles.x, yaw: cmd.view_angles.y };
+        sim.step(cmd);
+        let v = &mut *v;
+        v.run.update(&v.course, &sim.state, &cmd);
+        input.consume();
+        return;
+    }
     if let Some(mut g) = ghost {
         let cmd = match g.next_cmd() {
             Some(c) => c,

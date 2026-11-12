@@ -7,6 +7,7 @@
 pub mod action;
 pub mod config;
 pub mod env;
+pub mod episode;
 pub mod obs;
 pub mod rays;
 pub mod reward;
@@ -15,6 +16,7 @@ pub mod vec;
 pub use action::Action;
 pub use config::EnvConfig;
 pub use env::{Env, Snapshot, Step, StepInfo, Track};
+pub use episode::{CourseSource, Episode, Replayed};
 pub use obs::{BlockSpec, GoalVector, ObsCtx, ObsProvider, ObsSpec, Proprioception};
 pub use rays::{ClassEncoding, RayGrid, RayHit, SurfaceClass};
 pub use reward::{BaseReward, ProgressShaping, Reward, RewardCtx, SumReward, WaypointBonus};

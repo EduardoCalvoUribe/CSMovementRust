@@ -127,6 +127,7 @@ pub fn update_hud(
     mut jump: Single<&mut Text, (With<JumpText>, Without<DebugText>)>,
     mut debug: Single<&mut Text, With<DebugText>>,
     ghost: Option<Res<crate::ghost::Ghost>>,
+    episode: Option<Res<crate::episode::EpisodeView>>,
 ) {
     let fps = diagnostics
         .get(&FrameTimeDiagnosticsPlugin::FPS)
@@ -210,6 +211,9 @@ pub fn update_hud(
     }
     if let Some(g) = ghost {
         debug.0 = crate::ghost::panel(&g, s) + &debug.0;
+    }
+    if let Some(v) = episode {
+        debug.0 = crate::episode::panel(&v) + &debug.0;
     }
 }
 

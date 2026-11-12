@@ -75,6 +75,17 @@ pub fn load(path: Option<&Path>) -> Result<LoadedLevel, String> {
     })
 }
 
+/// An agent episode's course as the level (R8). Rendered like the test level, from the course's brushes.
+pub fn from_episode(view: &crate::episode::EpisodeView) -> Result<LoadedLevel, String> {
+    let level = view.level()?;
+    let areas = level.areas.iter().map(|a| AreaInfo { name: a.name.to_string(), spawn: a.spawn, yaw: a.yaw }).collect();
+    Ok(LoadedLevel {
+        info: CurrentLevel { name: view.course.meta.name.clone(), path: None, areas },
+        world: view.course.world.clone(),
+        geometry: Geometry::Test(level),
+    })
+}
+
 /// No spawn entities: stand on the first walkable face that has room for the player.
 fn fallback_spawn(map: &BspMap, world: &World) -> SVec3 {
     for f in map.faces.iter().filter(|f| f.normal.z >= 0.7 && !f.displacement) {

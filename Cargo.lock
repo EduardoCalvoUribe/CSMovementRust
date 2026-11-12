@@ -190,6 +190,8 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "compare",
+ "course",
+ "env",
  "movement",
  "testlevel",
 ]

@@ -338,11 +338,32 @@ suite was green after each.
   `Touch` end before the last one, which the test checks is the reason); the goal block reports the next
   waypoint; snapshots fork combined rewards.
 
+- **R8: replay gate passed; the visual check has not been done.** `env::Episode`
+  (`crates/env/src/episode.rs`) is the per-episode artifact: course source (`CourseSource::Toy { stage,
+  seed, end }`; BSP joins at R7), outcome (status, run ticks, waypoints), final state, and the embedded
+  bit-exact `Recording`, as text (`csmove-episode 1`). `Episode::verify` rebuilds the course and replays with
+  a fresh mode and `CourseRun`. `cargo run -p env --example episode -- <Stage> <seed> [Touch|Button] [out]`
+  writes one from a toy course's reference solution run through `Env`. The app gained `csmove --episode
+  <file>` (drives the sim with the episode's commands like `--ghost`, loops with a one-second hold, draws
+  the start zone green, the end volume or button gold, hazards red, and waypoints as rings that grey out
+  when reached, with an EPISODE panel on the HUD) and `csmove --check-episode <file>` (headless verify).
+  Gates: `crates/env/tests/episode.rs` (episodes from reference solutions and random play, both end kinds,
+  all stages, survive the text round trip and verify bit for bit, including failed runs; tampered commands,
+  outcome, or course are rejected; malformed files are errors) and `episode::tests` in the app (the
+  viewer's own tick path ends on the recorded outcome and final state, two loops). Command-line check run:
+  `--check-episode` on an exported Heights/7/Button episode printed `BIT_EXACT`. **Not done:** opening the
+  window and watching an episode; the plan calls for that manual check, and it needs someone at the screen.
+  Note while testing: a one-tick strafe in the air can leave the state unchanged bit for bit (at 250 u/s
+  the projected speed is far above the 30 u/s air wish cap), so tamper tests must change more than that.
+
 ### Handoff for the next session
 
-1. **Next is R7** (BSP -> `Course`): needs a real KZ map on this machine, the mapper naming convention for
-   start/end (§10.3), and the LZMA decision. Ask the user before starting. R8 (Bevy viewer for agent
-   recordings) does not depend on R7 and can go first.
+1. **Manual R8 check** (user): `cargo run -p env --example episode -- Heights 7 Button out.episode`, then
+   `cargo run -p app --release -- --episode out.episode`; the run should cross the blocks, rings should grey
+   out in order, and the HUD should end on `Completed` at the recorded ticks before looping.
+2. **R7** (BSP -> `Course`): needs a real KZ map on this machine, the mapper naming convention for
+   start/end (§10.3), and the LZMA decision. Ask the user before starting. R9 (real-server validation of a
+   toy-course run) needs the CS:GO capture rig from plan §9 and a toy course compiled to a map.
 2. Optional, when wanted: a strafing reference controller, which unlocks the LJ and bhop-chain stages of R3.
 3. **Still open, ask the user when they come up:** whether to use waypoint shaping during training (it is
    built and optional); whether real maps will be available (R7 needs one, and `BspMap::parse` rejects LZMA
