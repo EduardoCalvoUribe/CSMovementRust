@@ -52,7 +52,8 @@ with the exact next steps). Rules specific to this work:
 - Do **not** choose or design the RL algorithm or network. The user is surveying SOTA research first and will
   supply it. Build the environment so that choice stays open.
 - New crates (`course`, `env`, later `pyenv`) are pure Rust on top of `movement`, with no Bevy. Do not change
-  sim arithmetic; the only planned `movement` change is a mode `fork()` for snapshots (plan §9).
+  sim arithmetic. `movement` changes so far: a mode `fork()` for snapshots (plan §9) and two read-only
+  `BspWorld` accessors for map import; ask before adding more (e.g. a faster ray trace).
 - Decided: SimpleKZ at 128 Hz, autobhop off, `Touch` end condition first, `+use` range is a placeholder (64)
   until the user confirms it.
 - Observations are pluggable: proprioception, goal-relative vector, and a raycast grid through `TraceWorld`
