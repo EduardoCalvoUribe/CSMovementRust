@@ -240,7 +240,7 @@ pub fn evaluate(course: &Course, cmds: &[UserCmd]) -> Option<(u32, usize)> {
     let cfg = *mode.config();
     let dt = tick_interval(SOLUTION_TICKRATE);
     let mut state = PlayerState::new(course.spawn.0);
-    let mut run = CourseRun::new();
+    let mut run = CourseRun::starting_at(&state);
     for (i, cmd) in cmds.iter().enumerate() {
         process_movement(&cfg, mode.as_mut(), &course.world, &mut state, cmd, &mut NullObserver, dt);
         match run.update(course, &state, cmd) {
@@ -308,7 +308,7 @@ pub fn reference_solution(course: &Course, blocks: &[Block], jump_on_landing: bo
     let cfg = *mode.config();
     let dt = tick_interval(SOLUTION_TICKRATE);
     let mut state = PlayerState::new(course.spawn.0);
-    let mut run = CourseRun::new();
+    let mut run = CourseRun::starting_at(&state);
     let angles = Vec3::new(0.0, course.spawn.1, 0.0);
     let mut cmds = Vec::new();
     let mut prev_jump = false;

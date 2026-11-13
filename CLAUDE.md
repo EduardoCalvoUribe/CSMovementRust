@@ -54,8 +54,8 @@ with the exact next steps). Rules specific to this work:
 - New crates (`course`, `env`, later `pyenv`) are pure Rust on top of `movement`, with no Bevy. Do not change
   sim arithmetic. `movement` changes so far: a mode `fork()` for snapshots (plan §9) and two read-only
   `BspWorld` accessors for map import; ask before adding more (e.g. a faster ray trace).
-- Decided: SimpleKZ at 128 Hz, autobhop off, `Touch` end condition first, `+use` range is a placeholder (64)
-  until the user confirms it.
+- Decided: SimpleKZ at 128 Hz, autobhop off, `Touch` end condition first, `+use` and GOKZ timer rules
+  measured on the real server (`docs/use-rules.md`).
 - Observations are pluggable: proprioception, goal-relative vector, and a raycast grid through `TraceWorld`
   (no pixels). Do not hard-code one.
 - Do not mark a milestone done until its gate tests have actually run; say plainly when they have not.

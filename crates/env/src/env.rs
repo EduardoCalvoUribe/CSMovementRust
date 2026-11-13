@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use course::{Course, CourseRun, Status};
+use course::{Course, CourseRun, KzRules, Status};
 use movement::replay::Recording;
 use movement::{process_movement, tick_interval, MovementConfig, MovementMode, NullObserver, PlayerState, Vec3};
 
@@ -144,6 +144,7 @@ impl Env {
         let spec = ObsSpec::from_blocks(providers.iter().map(|p| p.spec()));
         let state = PlayerState::new(course.spawn.0);
         let recording = Recording::new(cfg.mode, tickrate, state.clone());
+        let run = CourseRun::starting_at(&state).with_rules(KzRules::for_mode(cfg.mode, tickrate));
         Ok(Self {
             view_angles: Vec3::new(0.0, course.spawn.1, 0.0),
             course,
@@ -153,7 +154,7 @@ impl Env {
             move_cfg,
             mode,
             state,
-            run: CourseRun::new(),
+            run,
             track: Track::default(),
             providers,
             spec,
@@ -269,7 +270,7 @@ impl Env {
         self.mode = self.cfg.mode.create();
         self.state = PlayerState::new(self.course.spawn.0);
         self.view_angles = Vec3::new(0.0, self.course.spawn.1, 0.0);
-        self.run = CourseRun::new();
+        self.run = CourseRun::starting_at(&self.state).with_rules(KzRules::for_mode(self.cfg.mode, self.tickrate));
         self.track = Track::default();
         self.reward.reset();
         let mut rec = Recording::new(self.cfg.mode, self.tickrate, self.state.clone());

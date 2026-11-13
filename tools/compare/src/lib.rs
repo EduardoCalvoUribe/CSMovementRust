@@ -5,6 +5,7 @@ pub mod capture;
 pub mod diff;
 pub mod kv;
 pub mod scenarios;
+pub mod useprobe;
 pub mod vmf;
 
 use std::path::{Path, PathBuf};

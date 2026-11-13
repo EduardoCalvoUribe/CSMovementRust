@@ -15,7 +15,7 @@
 //! ```
 
 use course::toy::{generate_with_end, EndKind, Stage};
-use course::{Course, CourseRun, Status};
+use course::{Course, CourseRun, KzRules, Status};
 use movement::replay::{state_fields, Recording};
 use movement::{process_movement, tick_interval, NullObserver};
 
@@ -219,7 +219,7 @@ pub fn replay_on(course: &Course, rec: &Recording) -> Replayed {
     cfg.autobhop = rec.autobhop;
     let dt = tick_interval(rec.tickrate);
     let mut state = rec.start.clone();
-    let mut run = CourseRun::new();
+    let mut run = CourseRun::starting_at(&state).with_rules(KzRules::for_mode(rec.mode, rec.tickrate));
     for cmd in &rec.cmds {
         process_movement(&cfg, mode.as_mut(), &course.world, &mut state, cmd, &mut NullObserver, dt);
         run.update(course, &state, cmd);

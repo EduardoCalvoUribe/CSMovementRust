@@ -7,14 +7,16 @@ use movement::{PlayerState, Vec3};
 
 use crate::zone::Zone;
 
-/// Eye height above the origin, standing and fully ducked, interpolated by `duck_amount`. Same values as
-/// the app's camera (`crates/app/src/camera.rs`), which marks them as still to confirm against captures.
+/// Eye height above the origin, standing and fully ducked, interpolated by `duck_amount`. The end values
+/// match the server's eye position in the `+use` probe captures (docs/use-rules.md); the interpolation in
+/// between is not measured.
 pub const EYE_STAND: f32 = 64.0;
 pub const EYE_DUCK: f32 = 46.0;
 
-/// Reach of `+use` for an end button. **Placeholder** (docs/reinforcement-plan.md §10.2) until confirmed
-/// against the real game.
-pub const USE_RANGE: f32 = 64.0;
+/// Reach of `+use`, measured on CS:GO 1.38.8.1 (docs/use-rules.md): a button is in reach when the
+/// largest per-axis gap between the eye and the button's bounding box is below this (a box test, not a
+/// sphere). The measured cutoff lies in (82.029, 82.078].
+pub const USE_RANGE: f32 = 82.05;
 
 /// The eye position of a player state.
 pub fn eye(state: &PlayerState) -> Vec3 {
@@ -27,8 +29,8 @@ pub fn eye(state: &PlayerState) -> Vec3 {
 pub enum StartSpec {
     /// On the first command that ends with the hull outside the zone; re-entering it resets the run.
     Zone(Zone),
-    /// On a fresh `+use` press whose view trace hits `entity` (a KZ map's `climb_startbutton`); pressing
-    /// it again while running restarts the run. Same placeholder `+use` rules as `EndSpec::Use`.
+    /// On a `+use` press of `entity` (a KZ map's `climb_startbutton`), under GOKZ's start rules; pressing
+    /// it again restarts the run. See `CourseRun` and docs/use-rules.md.
     Button { entity: EntityId },
 }
 
@@ -37,12 +39,8 @@ pub enum StartSpec {
 pub enum EndSpec {
     /// The player's hull overlaps the volume.
     Touch(Zone),
-    /// A fresh `+use` press whose view trace (from the eye, up to `USE_RANGE`) hits `entity`, the
-    /// button's solid brush entity. `target` is the point goal observations aim at (the button's center).
-    ///
-    /// Placeholder rules, to confirm against GOKZ/Source (plan §3): Source finds use targets with a more
-    /// forgiving search than one straight trace, and the check here runs on the state after the tick's
-    /// movement.
+    /// A `+use` press of `entity`, the button's solid brush entity (`use_hits` has the measured rules).
+    /// `target` is the point goal observations aim at (the button's center).
     Use { entity: EntityId, target: Vec3 },
 }
 
@@ -98,6 +96,36 @@ pub struct Course {
 }
 
 impl Course {
+    /// The entities `+use` can press on this course: the start and end buttons.
+    pub fn buttons(&self) -> impl Iterator<Item = EntityId> + '_ {
+        let start = match &self.start {
+            StartSpec::Button { entity } => Some(*entity),
+            StartSpec::Zone(_) => None,
+        };
+        let end = match &self.end {
+            EndSpec::Use { entity, .. } => Some(*entity),
+            EndSpec::Touch(_) => None,
+        };
+        start.into_iter().chain(end)
+    }
+
+    /// Bounding box of an entity's brushes, if it has any.
+    pub fn entity_bounds(&self, e: EntityId) -> Option<(Vec3, Vec3)> {
+        let grow = |acc: Option<(Vec3, Vec3)>, (lo, hi): (Vec3, Vec3)| {
+            Some(match acc {
+                None => (lo, hi),
+                Some((a, b)) => (
+                    Vec3::new(a.x.min(lo.x), a.y.min(lo.y), a.z.min(lo.z)),
+                    Vec3::new(b.x.max(hi.x), b.y.max(hi.y), b.z.max(hi.z)),
+                ),
+            })
+        };
+        match &self.world {
+            World::Primitive(w) => w.brushes.iter().filter(|b| b.entity == e).map(|b| (b.mins, b.maxs)).fold(None, grow),
+            World::Bsp(w) => w.entity_brushes(e).map(|b| (b.mins, b.maxs)).fold(None, grow),
+        }
+    }
+
     /// The start zone, for courses that start by leaving one.
     pub fn start_zone(&self) -> Option<&Zone> {
         match &self.start {

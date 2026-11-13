@@ -130,7 +130,19 @@ fn solid(out: &mut String, ids: &mut Ids, shape: Shape, material: &str) {
     out.push_str("\t}\n");
 }
 
+/// A brush entity (a `func_button`): its class, keyvalues, and boxes.
+pub struct BrushEntity {
+    pub class: &'static str,
+    pub keys: Vec<(&'static str, String)>,
+    pub boxes: Vec<(Vec3, Vec3)>,
+}
+
 pub fn generate(level: &testlevel::Level) -> String {
+    generate_with(level, &[])
+}
+
+/// The level plus brush entities.
+pub fn generate_with(level: &testlevel::Level, entities: &[BrushEntity]) -> String {
     let mut ids = Ids { next: 1 };
     let mut out = String::new();
     out.push_str(
@@ -146,6 +158,10 @@ pub fn generate(level: &testlevel::Level) -> String {
         solid(&mut out, &mut ids, b.shape, mat);
         lo = Vec3::new(lo.x.min(b.mins.x), lo.y.min(b.mins.y), lo.z.min(b.mins.z));
         hi = Vec3::new(hi.x.max(b.maxs.x), hi.y.max(b.maxs.y), hi.z.max(b.maxs.z));
+    }
+    for (min, max) in entities.iter().flat_map(|e| e.boxes.iter()) {
+        lo = Vec3::new(lo.x.min(min.x), lo.y.min(min.y), lo.z.min(min.z));
+        hi = Vec3::new(hi.x.max(max.x), hi.y.max(max.y), hi.z.max(max.z));
     }
     // Seal the map in a sky box so vbsp doesn't leak.
     let m = 256.0;
@@ -167,6 +183,16 @@ pub fn generate(level: &testlevel::Level) -> String {
         solid(&mut out, &mut ids, Shape::Box { min, max }, SKY_MATERIAL);
     }
     out.push_str("}\n");
+    for e in entities {
+        let _ = writeln!(out, "entity\n{{\n\t\"id\" \"{}\"\n\t\"classname\" \"{}\"", ids.take(), e.class);
+        for (k, v) in &e.keys {
+            let _ = writeln!(out, "\t\"{k}\" \"{v}\"");
+        }
+        for &(min, max) in &e.boxes {
+            solid(&mut out, &mut ids, Shape::Box { min, max }, SOLID_MATERIAL);
+        }
+        out.push_str("}\n");
+    }
 
     for (i, (x, y)) in SPAWNS.iter().enumerate() {
         let class = if i % 2 == 0 { "info_player_terrorist" } else { "info_player_counterterrorist" };

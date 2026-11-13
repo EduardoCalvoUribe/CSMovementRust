@@ -6,6 +6,8 @@
 //!                                             solution as a scenario in <dir>/scenarios
 //! compare scenarios <dir>                     write the scenario ladder for the server plugin
 //!   `--bsp <map.bsp> --lj x,y,z,yaw ...` writes long-jump scenarios on that map instead (M9 gate)
+//! compare useprobe <dir>                      the +use probe map (.vmf) and scenarios (RL, R6 rules)
+//! compare useprobe-report <captures> <out>    per-press table of the probe captures (events.csv)
 //! compare import <results> <captures>         turn plugin output into capture folders
 //! compare diff <capture> [--reports <dir>]    replay and diff one capture
 //! compare all <captures> [--reports <dir>]    diff every capture, summary table, exit 1 on FAILED
@@ -31,6 +33,9 @@ fn main() -> ExitCode {
         Some("map") if args.len() == 2 => cmd_map(Path::new(&args[1])),
         Some("toy") if args.len() == 4 => cmd_toy(&args[1], &args[2], Path::new(&args[3])),
         Some("scenarios") if args.len() >= 2 => cmd_scenarios(Path::new(&args[1]), &args),
+        Some("useprobe") if args.len() == 2 => cmd_useprobe(Path::new(&args[1])),
+        Some("useprobe-check") if args.len() >= 2 => args[1..].iter().try_for_each(|d| compare::useprobe::check(Path::new(d))),
+        Some("useprobe-report") if args.len() == 3 => compare::useprobe::report(Path::new(&args[1]), Path::new(&args[2])),
         Some("import") if args.len() == 3 => cmd_import(Path::new(&args[1]), Path::new(&args[2])),
         Some("diff") if args.len() >= 2 => {
             replay_world(&args).and_then(|w| cmd_diff(Path::new(&args[1]), &reports_dir(&args), &w, true)).map(|_| ())
@@ -156,6 +161,22 @@ fn cmd_toy(stage: &str, seed: &str, dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The `+use` probe map (as a .vmf) and its scenarios (see `compare::useprobe`).
+fn cmd_useprobe(dir: &Path) -> Result<(), String> {
+    use compare::useprobe;
+    let (level, ents) = useprobe::level();
+    write(&dir.join("maps").join(format!("{}.vmf", useprobe::MAP)), &vmf::generate_with(&level, &ents))?;
+    write_scenarios(&dir.join("scenarios"), &useprobe::scenarios())?;
+    println!(
+        "wrote {}/maps/{}.vmf; compile it, run tools/capture/run.ps1 -Tickrate 128 -Mode simplekz -MapFile <bsp>\n\
+         -List list_{}_simplekz_128.txt, then `compare useprobe-report <captures> <out.csv>`.",
+        dir.display(),
+        useprobe::MAP,
+        useprobe::MAP
+    );
+    Ok(())
+}
+
 fn cmd_map(out: &Path) -> Result<(), String> {
     write(out, &vmf::generate(&testlevel::describe()))?;
     println!("wrote {}", out.display());
@@ -245,6 +266,10 @@ fn cmd_import(results: &Path, captures: &Path) -> Result<(), String> {
         write(&out.join("cmds.csv"), &cmds)?;
         write(&out.join("states.csv"), &read("states.csv")?)?;
         write(&out.join("meta.toml"), &read("meta.toml")?)?;
+        // Button presses, GOKZ timer events, and eye positions (plugin 1.2+).
+        if let Ok(events) = read("events.csv") {
+            write(&out.join("events.csv"), &events)?;
+        }
         // The level hash identifies the test level; captures on other maps are identified by map name.
         let on_test_map = Kv::parse(&read("meta.toml")?)?.get("map").is_none_or(|m| m == "csmove_capture");
         let scen_text = read("scenario.toml")?;

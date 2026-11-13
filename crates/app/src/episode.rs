@@ -4,7 +4,7 @@
 //! bit-exact check. Display only: `env::Episode::verify` is the source of truth.
 
 use bevy::prelude::*;
-use course::{Course, CourseRun, EndSpec, StartSpec, Status, Zone};
+use course::{Course, CourseRun, EndSpec, KzRules, StartSpec, Status, Zone};
 use env::Episode;
 use movement::world::World;
 use movement::{UserCmd, Vec3 as SVec3};
@@ -38,7 +38,14 @@ impl EpisodeView {
 
     pub fn new(ep: Episode, name: String) -> Result<Self, String> {
         let course = ep.source.build()?;
-        Ok(Self { ep, course, name, cursor: 0, run: CourseRun::new(), hold: 0 })
+        let run = Self::fresh_run(&ep);
+        Ok(Self { ep, course, name, cursor: 0, run, hold: 0 })
+    }
+
+    /// A run timer as the episode's environment had it.
+    fn fresh_run(ep: &Episode) -> CourseRun {
+        let rec = &ep.recording;
+        CourseRun::starting_at(&rec.start).with_rules(KzRules::for_mode(rec.mode, rec.tickrate))
     }
 
     /// A primitive-world course as a level the app can render: its brushes and one area at the spawn.
@@ -66,7 +73,7 @@ impl EpisodeView {
         sim.spawn = (rec.start.origin, self.course.spawn.1);
         sim.tick = 0;
         self.cursor = 0;
-        self.run = CourseRun::new();
+        self.run = Self::fresh_run(&self.ep);
         self.hold = 0;
     }
 

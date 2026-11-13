@@ -77,8 +77,28 @@ fn use_needs_a_fresh_press_in_range() {
     assert_eq!(use_hits(&t.course, &far, Vec3::ZERO), None);
     let near = PlayerState::new(Vec3::new(target.x - USE_RANGE + 8.0, 0.0, 0.03125));
     assert_eq!(use_hits(&t.course, &near, Vec3::ZERO), Some(entity));
-    // Looking away from it misses.
-    assert_eq!(use_hits(&t.course, &near, Vec3::new(0.0, 180.0, 0.0)), None);
+    // KZ buttons (min_use_angle -1) press in any view direction (docs/use-rules.md).
+    assert_eq!(use_hits(&t.course, &near, Vec3::new(0.0, 180.0, 0.0)), Some(entity));
+}
+
+/// The measured reach is a box around the button's bounds, not a sphere (docs/use-rules.md): the gap
+/// along x decides, even with the button 64 units to the side.
+#[test]
+fn use_reach_is_a_box_and_needs_line_of_sight() {
+    let t = generate_with_end(Stage::Walk, 0, EndKind::Button);
+    let EndSpec::Use { entity, .. } = t.course.end else { unreachable!() };
+    let (lo, _) = t.course.entity_bounds(entity).unwrap();
+    let eye_at = |gap_x: f32, side: f32| Vec3::new(lo.x - gap_x, side, lo.z + 8.0);
+    assert_eq!(course::use_target(&t.course, eye_at(USE_RANGE - 0.02, 0.0), Vec3::ZERO), Some(entity));
+    assert_eq!(course::use_target(&t.course, eye_at(USE_RANGE + 0.02, 0.0), Vec3::ZERO), None);
+    // 64 units beside the button's side face: still the x gap that decides.
+    let side = 16.0 + 64.0;
+    assert_eq!(course::use_target(&t.course, eye_at(USE_RANGE - 0.02, side), Vec3::ZERO), Some(entity));
+    assert_eq!(course::use_target(&t.course, eye_at(USE_RANGE + 0.02, side), Vec3::ZERO), None);
+    // From inside the end platform's solid, within reach by the box test: no line of sight. (The real
+    // wall case is the probe's `Uo_slow` capture, checked by `compare useprobe-check`.)
+    let below = Vec3::new(lo.x + 8.0, 0.0, lo.z - 60.0);
+    assert_eq!(course::use_target(&t.course, below, Vec3::ZERO), None);
 }
 
 #[test]

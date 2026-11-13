@@ -136,22 +136,26 @@ fn real_map_imports_with_override_and_its_buttons_start_and_end_a_run() {
     let (at_start, start_view) = stand_at_button(&course, start_target, start).expect("a spot that reaches the start button");
     let (at_end, end_view) = stand_at_button(&course, end_target, end).expect("a spot that reaches the end button");
 
-    // Press start, idle 100 commands, then (placed at the end button: not a real run, the route itself
+    // Press start, idle 300 commands, then (placed at the end button: not a real run, the route itself
     // needs a human recording) press end.
-    let mut run = CourseRun::new();
+    let mut run = CourseRun::starting_at(&at_start);
     let press = |view: Vec3| UserCmd::from_buttons(0, view, Buttons::USE);
     let idle = |view: Vec3| UserCmd::from_buttons(0, view, Buttons::NONE);
-    // Holding +use from before reaching the button would not press; a fresh press does.
+    // Holding +use from before reaching the button would not press; a fresh press does (command 1).
     assert_eq!(run.update(&course, &at_start, &idle(start_view)), Status::Idle);
     assert_eq!(run.update(&course, &at_start, &press(start_view)), Status::Running);
     assert_eq!(run.elapsed_ticks, 0);
-    for _ in 0..100 {
+    // Standing where it was pressed, GOKZ's virtual start button restarts the timer after every command
+    // for 2 s (256 commands) after the press: the last restart is on command 257.
+    for _ in 0..300 {
         run.update(&course, &at_start, &idle(start_view));
     }
-    assert_eq!(run.elapsed_ticks, 100);
+    assert_eq!(run.elapsed_ticks, 301 - 257);
+    // A press is judged from the state before its command, so first spend a command at the end button.
+    run.update(&course, &at_end, &idle(end_view));
     // Pressing end while still holding +use from the previous command does not count.
     run.update(&course, &at_end, &press(end_view));
     let held = run.update(&course, &at_end, &press(end_view));
     assert_eq!(held, Status::Completed, "first press completes; the second command is after completion");
-    assert_eq!(run.elapsed_ticks, 101);
+    assert_eq!(run.elapsed_ticks, 303 - 257);
 }

@@ -19,7 +19,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.1.0"
+#define PLUGIN_VERSION "1.2.0"
 #define MAX_CMDS 4096
 
 // GOKZ (optional): only the mode is set, so the native is declared here instead of pulling in GOKZ's
@@ -93,6 +93,12 @@ int g_Buttons[MAX_CMDS];
 float g_Ang[MAX_CMDS][3];
 
 ArrayList g_Rows;
+// Events during a run (button presses, GOKZ timer start/end) and the eye position per pre/post row,
+// written as events.csv: what +use and the KZ timer did, for docs/reinforcement-plan.md R6.
+ArrayList g_Events;
+// True between OnPlayerRunCmd and OnPlayerRunCmdPost of a run command: an event inside it happened
+// while the engine ran that command.
+bool g_InCmd;
 ArrayList g_Queue;
 ConVar g_QuitWhenDone;
 ConVar g_MapHash;
@@ -112,6 +118,9 @@ public void OnPluginStart()
 	g_AutoBatch = CreateConVar("csmove_autobatch", "", "List file to run automatically after the map loads");
 	g_Target = CreateConVar("csmove_target", "human", "Who is driven: human (a connected client) or bot");
 	g_Rows = new ArrayList(ByteCountToCells(1024));
+	g_Events = new ArrayList(ByteCountToCells(256));
+	HookEntityOutput("func_button", "OnPressed", Output_Event);
+	HookEntityOutput("func_button", "OnUseLocked", Output_Event);
 	g_Queue = new ArrayList(ByteCountToCells(128));
 	char dir[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, dir, sizeof(dir), "data/csmove");
@@ -287,6 +296,8 @@ void StartNext()
 		return;
 	}
 	g_Rows.Clear();
+	g_Events.Clear();
+	g_InCmd = false;
 	g_Unavailable[0] = '\0';
 	g_Gap = false;
 	g_Slowed = false;
@@ -590,6 +601,8 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 			}
 		}
 		LogRow(client, k, "pre", cmdnum);
+		LogEye(client, k, "pre");
+		g_InCmd = true;
 		buttons = g_Buttons[k];
 		vel[0] = g_Fwd[k];
 		vel[1] = g_Side[k];
@@ -626,7 +639,9 @@ public void OnPlayerRunCmdPost(int client, int buttons, int impulse, const float
 	{
 		return;
 	}
+	g_InCmd = false;
 	LogRow(client, g_Index, "post", cmdnum);
+	LogEye(client, g_Index, "post");
 	g_Index++;
 	if (g_Index >= g_Count)
 	{
@@ -738,6 +753,75 @@ void LogRow(int client, int k, const char[] phase, int cmdnum)
 	g_Rows.PushString(row);
 }
 
+/// One events.csv row: the command index it belongs to, whether it happened inside that command, what
+/// happened, the entity's targetname, a value (GOKZ time), and the driven player's eye position and
+/// angles at that moment.
+void AddEvent(const char[] what, const char[] name, float value)
+{
+	if (g_State != State_Run || g_Bot < 1 || !IsClientInGame(g_Bot))
+	{
+		return;
+	}
+	float eye[3], ang[3];
+	GetClientEyePosition(g_Bot, eye);
+	GetClientEyeAngles(g_Bot, ang);
+	char vb[16], row[256], dec[160], bits[64];
+	FloatBits(value, vb, sizeof(vb));
+	Format(dec, sizeof(dec), "%d,%d,%s,%s,%.9f,%s,%d", g_Index, view_as<int>(g_InCmd), what, name, value, vb, GetGameTickCount());
+	bits[0] = '\0';
+	for (int i = 0; i < 3; i++) AddFloat(dec, sizeof(dec), bits, sizeof(bits), eye[i], true);
+	for (int i = 0; i < 3; i++) AddFloat(dec, sizeof(dec), bits, sizeof(bits), ang[i], true);
+	Format(row, sizeof(row), "%s%s", dec, bits);
+	g_Events.PushString(row);
+}
+
+/// The eye position at a pre/post row, as an "eye_pre"/"eye_post" event.
+void LogEye(int client, int k, const char[] phase)
+{
+	if (client != g_Bot || k != g_Index)
+	{
+		return;
+	}
+	char what[16];
+	Format(what, sizeof(what), "eye_%s", phase);
+	bool inCmd = g_InCmd;
+	g_InCmd = false;
+	AddEvent(what, "", 0.0);
+	g_InCmd = inCmd;
+}
+
+public void Output_Event(const char[] output, int caller, int activator, float delay)
+{
+	if (activator != g_Bot)
+	{
+		return;
+	}
+	char name[64];
+	name[0] = '\0';
+	if (caller > 0 && IsValidEntity(caller))
+	{
+		GetEntPropString(caller, Prop_Data, "m_iName", name, sizeof(name));
+	}
+	AddEvent(output, name, 0.0);
+}
+
+// GOKZ forwards (gokz/core.inc); only called when GOKZ is loaded.
+public void GOKZ_OnTimerStart_Post(int client, int course)
+{
+	if (client == g_Bot)
+	{
+		AddEvent("timer_start", "", float(course));
+	}
+}
+
+public void GOKZ_OnTimerEnd_Post(int client, int course, float time, int teleportsUsed)
+{
+	if (client == g_Bot)
+	{
+		AddEvent("timer_end", "", time);
+	}
+}
+
 void Requeue(const char[] why)
 {
 	g_Retries++;
@@ -824,6 +908,16 @@ void Finish()
 	for (int i = 0; i < g_Rows.Length; i++)
 	{
 		g_Rows.GetString(i, row, sizeof(row));
+		f.WriteLine(row);
+	}
+	delete f;
+
+	Format(path, sizeof(path), "%s/events.csv", dir);
+	f = OpenFile(path, "w");
+	f.WriteLine("tick,in_cmd,event,name,value,value_bits,server_tick,eye_x,eye_y,eye_z,pitch,yaw,roll,eye_x_bits,eye_y_bits,eye_z_bits,pitch_bits,yaw_bits,roll_bits");
+	for (int i = 0; i < g_Events.Length; i++)
+	{
+		g_Events.GetString(i, row, sizeof(row));
 		f.WriteLine(row);
 	}
 	delete f;
