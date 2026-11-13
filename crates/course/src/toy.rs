@@ -222,6 +222,7 @@ pub fn generate_with_end(stage: Stage, seed: u64, end_kind: EndKind) -> ToyCours
             .iter()
             .map(|b| Waypoint { pos: Vec3::new((b.min_x + b.max_x) * 0.5, 0.0, b.top), radius: (b.max_x - b.min_x) * 0.5 + 16.0 })
             .collect(),
+        teleports: Vec::new(),
         meta: CourseMeta { name: format!("toy {stage:?} seed {seed}") },
     };
     let (solution, view_deltas, reference_ticks) = if stage == Stage::LongJump {

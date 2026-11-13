@@ -23,6 +23,7 @@ fn single_env_steps_per_second() {
         hazards: Vec::new(),
         kill_z: -256.0,
         waypoints: Vec::new(),
+        teleports: Vec::new(),
         meta: CourseMeta { name: "bench".into() },
     };
     let mut env = Env::new(Arc::new(course), EnvConfig { max_episode_ticks: 2000, ..EnvConfig::default() }).unwrap();

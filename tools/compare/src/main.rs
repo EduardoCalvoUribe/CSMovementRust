@@ -8,6 +8,8 @@
 //!   `--bsp <map.bsp> --lj x,y,z,yaw ...` writes long-jump scenarios on that map instead (M9 gate)
 //! compare useprobe <dir>                      the +use probe map (.vmf) and scenarios (RL, R6 rules)
 //! compare useprobe-report <captures> <out>    per-press table of the probe captures (events.csv)
+//! compare tpprobe <dir>                       the trigger_teleport probe map (.vmf) and scenarios (RL, R7)
+//! compare tpprobe-check <captures...>        our sim + course teleports against the probe captures
 //! compare import <results> <captures>         turn plugin output into capture folders
 //! compare diff <capture> [--reports <dir>]    replay and diff one capture
 //! compare all <captures> [--reports <dir>]    diff every capture, summary table, exit 1 on FAILED
@@ -34,6 +36,8 @@ fn main() -> ExitCode {
         Some("toy") if args.len() == 4 => cmd_toy(&args[1], &args[2], Path::new(&args[3])),
         Some("scenarios") if args.len() >= 2 => cmd_scenarios(Path::new(&args[1]), &args),
         Some("useprobe") if args.len() == 2 => cmd_useprobe(Path::new(&args[1])),
+        Some("tpprobe") if args.len() == 2 => cmd_tpprobe(Path::new(&args[1])),
+        Some("tpprobe-check") if args.len() >= 2 => args[1..].iter().try_for_each(|d| compare::tpprobe::check(Path::new(d))),
         Some("useprobe-check") if args.len() >= 2 => args[1..].iter().try_for_each(|d| compare::useprobe::check(Path::new(d))),
         Some("useprobe-report") if args.len() == 3 => compare::useprobe::report(Path::new(&args[1]), Path::new(&args[2])),
         Some("import") if args.len() == 3 => cmd_import(Path::new(&args[1]), Path::new(&args[2])),
@@ -157,6 +161,22 @@ fn cmd_toy(stage: &str, seed: &str, dir: &Path) -> Result<(), String> {
         dir.display(),
         toy.solution.len(),
         toy.reference_ticks
+    );
+    Ok(())
+}
+
+/// The teleport probe map (as a .vmf) and its scenarios (see `compare::tpprobe`).
+fn cmd_tpprobe(dir: &Path) -> Result<(), String> {
+    use compare::tpprobe;
+    let (level, ents, points) = tpprobe::level();
+    write(&dir.join("maps").join(format!("{}.vmf", tpprobe::MAP)), &vmf::generate_full(&level, &ents, &points))?;
+    write_scenarios(&dir.join("scenarios"), &tpprobe::scenarios())?;
+    println!(
+        "wrote {}/maps/{}.vmf; compile it, run tools/capture/run.ps1 -Tickrate 128 -Mode simplekz -MapFile <bsp>
+         -List list_{}_simplekz_128.txt, then `compare tpprobe-check <captures>`.",
+        dir.display(),
+        tpprobe::MAP,
+        tpprobe::MAP
     );
     Ok(())
 }

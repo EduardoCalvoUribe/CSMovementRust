@@ -21,6 +21,7 @@ fn course() -> Arc<Course> {
         hazards: Vec::new(),
         kill_z: -256.0,
         waypoints: Vec::new(),
+        teleports: Vec::new(),
         meta: CourseMeta { name: "snapshot".into() },
     })
 }

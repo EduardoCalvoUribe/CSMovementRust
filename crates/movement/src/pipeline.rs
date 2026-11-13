@@ -104,9 +104,11 @@ impl<W: TraceWorld + ?Sized, O: MoveObserver + ?Sized> Mover<'_, W, O> {
         self.reduce_timers();
         self.mv.basis = angle_vectors(self.mv.angles);
 
-        // Optimized initial categorization: only unground when launched upward fast [Ref §2].
+        // Optimized initial categorization: only unground when launched upward fast [Ref §2]. A full one
+        // when not walking, or when game code moved the player since the last command (a teleport).
         self.phase = Phase::PreMove;
-        if self.state.move_type != MoveType::Walk {
+        if self.state.move_type != MoveType::Walk || self.state.game_moved {
+            self.state.game_moved = false;
             self.categorize_position();
         } else if self.state.velocity.z > self.cfg.unground_velocity {
             self.set_ground_entity(None);

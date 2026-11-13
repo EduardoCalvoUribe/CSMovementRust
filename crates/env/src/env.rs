@@ -1,9 +1,11 @@
 //! `reset` / `step` over one course (plan §4).
 //!
 //! Per tick, in order: integrate the view angles from the action (clamped), build the `UserCmd`, run
-//! `process_movement`, append the command to the episode's `Recording`, advance the `CourseRun`, update
-//! the tracked takeoff facts, and score the tick. The `Recording` alone reproduces the episode bit for
-//! bit through `Recording::replay`, which builds its mode and config the same way `reset` does.
+//! `process_movement`, append the command to the episode's `Recording`, apply map teleports and advance
+//! the `CourseRun` (`CourseRun::after_command`), update the tracked takeoff facts, and score the tick. On
+//! courses without teleports the `Recording` alone reproduces the episode bit for bit through
+//! `Recording::replay`, which builds its mode and config the same way `reset` does; with teleports, replay
+//! it on the course (`episode::replay_on`).
 
 use std::sync::Arc;
 
@@ -345,7 +347,10 @@ impl Env {
 
         let prev_status = self.run.status;
         let prev_run = self.run;
-        self.run.update(&self.course, &self.state, &cmd);
+        // Map teleports snap the view, as the server does to a real player's.
+        if let Some(view) = self.run.after_command(&self.course, &mut self.state, &cmd) {
+            self.view_angles = Vec3::new(view.x, view.y.rem_euclid(360.0), 0.0);
+        }
 
         let t = &mut self.track;
         t.episode_ticks += 1;

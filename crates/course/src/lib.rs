@@ -9,7 +9,7 @@ pub mod strafe;
 pub mod toy;
 pub mod zone;
 
-pub use course::{eye, Course, CourseMeta, EndSpec, StartSpec, Waypoint, EYE_DUCK, EYE_STAND, USE_RANGE, WAYPOINT_ABOVE};
+pub use course::{eye, Course, CourseMeta, EndSpec, StartSpec, Teleport, Waypoint, EYE_DUCK, EYE_STAND, USE_RANGE, WAYPOINT_ABOVE};
 pub use run::{use_hits, use_target, CourseRun, KzRules, Status};
 pub use toy::{EndKind, Stage, ToyCourse};
 pub use zone::Zone;

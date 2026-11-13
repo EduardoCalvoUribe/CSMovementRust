@@ -200,7 +200,8 @@ pub fn fixed_tick(
         *angles = ViewAngles { pitch: cmd.view_angles.x, yaw: cmd.view_angles.y };
         sim.step(cmd);
         let v = &mut *v;
-        v.run.update(&v.course, &sim.state, &cmd);
+        // Map teleports move the player; the next command carries its own recorded angles.
+        v.run.after_command(&v.course, &mut sim.state, &cmd);
         input.consume();
         return;
     }

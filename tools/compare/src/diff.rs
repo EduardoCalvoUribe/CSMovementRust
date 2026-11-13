@@ -333,6 +333,19 @@ pub enum Sync {
 /// Replay and diff. `shift` delays our command stream by that many ticks (phase check, plan §9.7 step 4;
 /// the first `shift` commands are empty).
 pub fn run(cap: &Capture, world: &impl TraceWorld, sync: Sync, shift: u32, tol: Tolerance) -> Result<RunResult, String> {
+    run_with(cap, world, sync, shift, tol, &mut |_| {})
+}
+
+/// `run` with `after` applied to our state after every command's movement (map triggers such as
+/// teleports, which happen outside `process_movement`).
+pub fn run_with(
+    cap: &Capture,
+    world: &impl TraceWorld,
+    sync: Sync,
+    shift: u32,
+    tol: Tolerance,
+    after: &mut dyn FnMut(&mut PlayerState),
+) -> Result<RunResult, String> {
     let cfg = cap.config()?;
     let mut mode = cap.mode()?.create();
     let dt = tick_interval(cap.tickrate()?);
@@ -359,6 +372,7 @@ pub fn run(cap: &Capture, world: &impl TraceWorld, sync: Sync, shift: u32, tol: 
         let mut cmd = if (k as u32) < shift { Default::default() } else { cap.cmds[k - shift as usize] };
         cmd.tick = k as u32;
         process_movement(&cfg, mode.as_mut(), world, &mut state, &cmd, &mut NullObserver, dt);
+        after(&mut state);
         ours_post.push(row_from_state(k as u32, &state));
 
         let theirs = &cap.post[k];

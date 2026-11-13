@@ -43,6 +43,11 @@ pub struct PlayerState {
     pub ladder_normal: Vec3,
     /// Seconds remaining during which jump cannot detach from a newly entered ladder [Ref §18].
     pub ladder_jump_ignore: f32,
+    /// Game code moved the player since the last command (a map teleport): the next command fully
+    /// categorizes its position before moving (Source SDK 2013 `CMoveData::m_bGameCodeMovedPlayer` in
+    /// `PlayerMove`; measured, docs/teleport-rules.md). That command clears it, so it is never set after
+    /// `process_movement`.
+    pub game_moved: bool,
 }
 
 impl PlayerState {
@@ -65,6 +70,7 @@ impl PlayerState {
             fall_velocity: 0.0,
             ladder_normal: Vec3::ZERO,
             ladder_jump_ignore: 0.0,
+            game_moved: false,
         }
     }
 

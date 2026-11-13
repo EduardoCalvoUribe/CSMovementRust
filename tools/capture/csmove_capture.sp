@@ -19,7 +19,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.2.0"
+#define PLUGIN_VERSION "1.3.0"
 #define MAX_CMDS 4096
 
 // GOKZ (optional): only the mode is set, so the native is declared here instead of pulling in GOKZ's
@@ -121,6 +121,8 @@ public void OnPluginStart()
 	g_Events = new ArrayList(ByteCountToCells(256));
 	HookEntityOutput("func_button", "OnPressed", Output_Event);
 	HookEntityOutput("func_button", "OnUseLocked", Output_Event);
+	// Map teleports (docs/reinforcement-plan.md R7): when they fire and where they put the player.
+	HookEntityOutput("trigger_teleport", "OnStartTouch", Output_Event);
 	g_Queue = new ArrayList(ByteCountToCells(128));
 	char dir[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, dir, sizeof(dir), "data/csmove");

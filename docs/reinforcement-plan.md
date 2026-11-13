@@ -212,6 +212,9 @@ same description can be rendered by the app and exported through `tools/compare`
 2. Possibly expose the ground normal / hit entity from the last command for observation features (it is
    already in `MoveData` and the observers; verify rather than assume).
 3. No change to any sim arithmetic. `cargo test` and all captures must stay green after each change.
+4. **Done (R7, approved 2026-11-13):** `PlayerState::game_moved`: after a map teleport the next command
+   runs a full `categorize_position` first, as Source's `m_bGameCodeMovedPlayer` (docs/teleport-rules.md).
+   Also two read-only `BspWorld` accessors (`entity_brushes`, `has_water`) for map import.
 
 ## 10. Decisions (open ones marked)
 
@@ -435,13 +438,25 @@ suite was green after each.
   list_csmove_toy_<stage>_<seed>_simplekz_128.txt -Out <dir>` (Steam running, client on `csgo_legacy`),
   and diff with `compare all <dir> --bsp <bsp>`.
 
+- **R7 follow-up (2026-11-13): map teleports measured and implemented.** See `docs/teleport-rules.md`.
+  `Course::teleports` (`Teleport { zone, origin, angles }`), applied after each command's movement by
+  `CourseRun::after_command` (used by `Env`, episode replay and the viewer; `Env` snaps its view to the
+  destination angles); `CourseRun::teleported` adds GOKZ's no-start-within-4-commands rule. The importer
+  turns plain `trigger_teleport`s into teleports (spawnflag 32 = clients in vehicles only: ignored, as on
+  the server), so **kz_longjumps_v4096 now imports without the override** (7 teleports, nothing
+  unsupported). Needed one approved `movement` change (§9 item 4). Check: `compare tpprobe-check
+  data/captures/raw/tpprobe1` prints `TELEPORT RULES MATCH` (12 scenarios on the real server, 11 BIT_EXACT,
+  1 WITHIN_ULP); `+use` check and R9 unchanged. Tests: `crates/course/tests/teleport.rs`, updated
+  `bsp_import.rs`. With teleports, a `Recording` alone no longer replays a BSP episode; replay it on the
+  course (`episode::replay_on`, which `Episode::verify` uses).
+
 ### Handoff for the next session
 
 1. **Manual R8 check** (user): `cargo run -p env --example episode -- Heights 7 Button out.episode`, then
    `cargo run -p app --release -- --episode out.episode`; the run should cross the blocks, rings should grey
    out in order, and the HUD should end on `Completed` at the recorded ticks before looping.
-2. **R7 remainder** (user): a hand-recorded run on a real KZ map, ideally one without teleports, recorded in
-   the app and checked against the in-game time.
+2. **R7 remainder** (user): a hand-recorded run on a real KZ map, recorded in the app and checked against
+   the in-game time. Teleports are now simulated, so kz_longjumps_v4096's full route (8 stages) is runnable.
 3. **R10** (`pyenv`) waits for the trainer choice (§10.5).
 4. **Still open, ask the user when they come up:** whether to use waypoint shaping during training (it is
    built and optional); more real maps, ideally without teleports (`BspMap::parse` rejects LZMA lumps,

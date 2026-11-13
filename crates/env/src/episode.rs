@@ -222,7 +222,7 @@ pub fn replay_on(course: &Course, rec: &Recording) -> Replayed {
     let mut run = CourseRun::starting_at(&state).with_rules(KzRules::for_mode(rec.mode, rec.tickrate));
     for cmd in &rec.cmds {
         process_movement(&cfg, mode.as_mut(), &course.world, &mut state, cmd, &mut NullObserver, dt);
-        run.update(course, &state, cmd);
+        run.after_command(course, &mut state, cmd);
     }
     Replayed {
         status: run.status,

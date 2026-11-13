@@ -204,5 +204,7 @@ fn parse_state(f: &[&str]) -> Result<PlayerState, String> {
         ladder_normal: v(20)?,
         ladder_jump_ignore: unhex(f[23])?,
         duck_speed_anchor: if f.len() == 27 { v(24)? } else { v(1)? },
+        // Not stored: only game code between two commands sets it (a teleport), never a command.
+        game_moved: false,
     })
 }

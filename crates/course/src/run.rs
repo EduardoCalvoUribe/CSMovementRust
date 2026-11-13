@@ -111,6 +111,8 @@ pub struct CourseRun {
     last_use: Option<u32>,
     /// Where the player pressed the start button from (GOKZ's virtual start button).
     virtual_start: Option<Vec3>,
+    /// The last command a map teleport fired in.
+    teleported_on: Option<u32>,
 }
 
 impl Default for CourseRun {
@@ -134,6 +136,7 @@ impl CourseRun {
             landed_on: None,
             last_use: None,
             virtual_start: None,
+            teleported_on: None,
         }
     }
 
@@ -147,9 +150,17 @@ impl CourseRun {
         self
     }
 
-    /// GOKZ `TimerStart`'s ground checks for command `k`: on the ground, and settled after landing.
+    /// A map teleport fired in the command about to be passed to `update` (`Course::touch_teleports`).
+    pub fn teleported(&mut self) {
+        self.teleported_on = Some(self.commands);
+    }
+
+    /// GOKZ `TimerStart`'s ground checks for command `k`: on the ground, settled after landing, and not
+    /// just teleported (`JustTeleported`: within `land_ticks` commands of a teleport, judged like landing).
     fn can_start(&self, on_ground: bool, k: u32) -> bool {
-        on_ground && self.landed_on.is_none_or(|l| k - l > self.rules.land_ticks)
+        on_ground
+            && self.landed_on.is_none_or(|l| k - l > self.rules.land_ticks)
+            && self.teleported_on.is_none_or(|t| k - t > self.rules.land_ticks)
     }
 
     fn restart(&mut self) {
@@ -158,7 +169,21 @@ impl CourseRun {
         self.next_waypoint = 0;
     }
 
-    /// Advance by one command. `state` is the player state after `cmd` ran.
+    /// Everything the course does after a command's movement, in the engine's order: map teleports
+    /// (`Course::touch_teleports`, which may move `state`), then [`CourseRun::update`]. Returns the view
+    /// angles a teleport set, for the caller's view (the next command's angles).
+    pub fn after_command(&mut self, course: &Course, state: &mut PlayerState, cmd: &UserCmd) -> Option<Vec3> {
+        let mut view = None;
+        if let Some(t) = course.touch_teleports(state) {
+            self.teleported();
+            view = t.angles;
+        }
+        self.update(course, state, cmd);
+        view
+    }
+
+    /// Advance by one command. `state` is the player state after `cmd` ran (and after any teleport:
+    /// prefer [`CourseRun::after_command`]).
     pub fn update(&mut self, course: &Course, state: &PlayerState, cmd: &UserCmd) -> Status {
         let k = self.commands;
         let before = self.before.unwrap_or_else(|| Before::of(state));

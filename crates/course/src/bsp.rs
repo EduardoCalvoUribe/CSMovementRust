@@ -6,17 +6,19 @@
 //! from GOKZ's convention and have not been seen on a map here yet. Bonus courses (`climb_bonusN_...`)
 //! are listed in the report and ignored.
 //!
-//! Anything the sim does not model and that can change a run's outcome (teleports, push and gravity
-//! triggers, moving brushes, water, unknown triggers) goes into an **unsupported-entity report**, and the
-//! import refuses unless the caller allows it. `trigger_hurt` becomes a hazard volume (a run that touches
-//! one fails; damage amounts are not modeled).
+//! Anything the sim does not model and that can change a run's outcome (push and gravity triggers,
+//! moving brushes, water, unknown triggers, teleports other than plain ones) goes into an
+//! **unsupported-entity report**, and the import refuses unless the caller allows it. `trigger_hurt`
+//! becomes a hazard volume (a run that touches one fails; damage amounts are not modeled). A plain
+//! `trigger_teleport` (enabled at spawn, affects clients, no filter or landmark, its `target` an entity
+//! with an origin) becomes a `Teleport` (rules: docs/teleport-rules.md).
 
 use movement::trace::{EntityId, Hull, TraceWorld};
 use movement::world::bsp::Entity;
 use movement::world::{BspMap, Brush, World};
 use movement::Vec3;
 
-use crate::course::{Course, CourseMeta, EndSpec, StartSpec};
+use crate::course::{Course, CourseMeta, EndSpec, StartSpec, Teleport};
 use crate::zone::Zone;
 
 pub const START_BUTTON: &str = "climb_startbutton";
@@ -45,6 +47,8 @@ pub struct ImportReport {
     /// allowed.
     pub unsupported: Vec<Unsupported>,
     pub hazards: usize,
+    /// Plain `trigger_teleport`s imported as teleports.
+    pub teleports: usize,
     /// Informational: bonus courses ignored, static brushes, and so on.
     pub notes: Vec<String>,
 }
@@ -54,6 +58,7 @@ impl std::fmt::Display for ImportReport {
         writeln!(f, "start: {}", self.start.as_deref().unwrap_or("NOT FOUND"))?;
         writeln!(f, "end:   {}", self.end.as_deref().unwrap_or("NOT FOUND"))?;
         writeln!(f, "hazards (trigger_hurt): {}", self.hazards)?;
+        writeln!(f, "teleports (trigger_teleport): {}", self.teleports)?;
         if self.unsupported.is_empty() {
             writeln!(f, "unsupported: none")?;
         } else {
@@ -88,10 +93,53 @@ impl std::fmt::Display for ImportError {
     }
 }
 
+/// Trigger spawnflags: affects clients; only clients in vehicles. The SDK's teleport also reads 32 as
+/// "preserve angles", but the trigger filter runs first: on CS:GO 1.38.8.1 a `trigger_teleport` with 32
+/// never teleported a player on foot (docs/teleport-rules.md).
+const SF_TRIGGER_CLIENTS: u32 = 1;
+const SF_TRIGGER_ONLY_CLIENTS_IN_VEHICLES: u32 = 32;
+
+/// A `trigger_teleport` the sim models: where it sends the player and the view angles it sets. `Err`
+/// says why it is not modelled; `Ok(None)` means it never affects a player on foot.
+pub fn plain_teleport(entities: &[Entity], e: &Entity) -> Result<Option<(Vec3, Option<Vec3>)>, &'static str> {
+    let flags: u32 = e.get("spawnflags").and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+    if flags & SF_TRIGGER_CLIENTS == 0 || flags & SF_TRIGGER_ONLY_CLIENTS_IN_VEHICLES != 0 {
+        return Ok(None);
+    }
+    if e.get("StartDisabled").is_some_and(|v| v.trim() == "1") {
+        return Err("teleport that starts disabled (map logic enables it)");
+    }
+    if e.get("filtername").is_some_and(|v| !v.trim().is_empty()) {
+        return Err("teleport with a filter (who it affects depends on map logic)");
+    }
+    if e.get("landmark").is_some_and(|v| !v.trim().is_empty()) {
+        return Err("teleport with a landmark (relative teleport, not modelled)");
+    }
+    if e.get("CheckDestIfClearForPlayer").is_some_and(|v| v.trim() == "1") {
+        return Err("teleport that only fires when its destination is clear");
+    }
+    let target = e.get("target").map(str::trim).filter(|t| !t.is_empty()).ok_or("teleport without a target (does nothing)")?;
+    let mut dests = entities.iter().filter(|d| d.get("targetname").is_some_and(|n| n.trim().eq_ignore_ascii_case(target)));
+    let dest = dests.next().ok_or("teleport whose target does not exist (does nothing)")?;
+    if dests.next().is_some() {
+        return Err("teleport with several targets of the same name (the engine picks one)");
+    }
+    if dest.get("origin").is_none() {
+        return Err("teleport target without an origin");
+    }
+    let angles = dest
+        .get("angles")
+        .map(|a| {
+            let v: Vec<f32> = a.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+            Vec3::new(v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0), 0.0)
+        })
+        .unwrap_or(Vec3::new(0.0, dest.yaw(), 0.0));
+    Ok(Some((dest.origin(), Some(angles))))
+}
+
 fn effect_of(class: &str) -> Option<&'static str> {
     let c = class.to_ascii_lowercase();
     Some(match c.as_str() {
-        "trigger_teleport" => "moves the player (checkpoints, fail resets, route sections)",
         "trigger_push" => "pushes the player",
         "trigger_gravity" => "changes gravity",
         "trigger_multiple" | "trigger_once" => "fires map logic (outputs) on touch",
@@ -151,6 +199,24 @@ pub fn classify(entities: &[Entity]) -> (Option<StartFound>, Option<EndFound>, V
         }
         if class.eq_ignore_ascii_case("trigger_hurt") {
             hazards.push(i);
+            continue;
+        }
+        if class.eq_ignore_ascii_case("trigger_teleport") {
+            let effect = match plain_teleport(entities, e) {
+                Ok(Some(_)) => {
+                    report.teleports += 1;
+                    continue;
+                }
+                Ok(None) => {
+                    report.notes.push(format!("trigger_teleport (entity {i}) does not affect players"));
+                    continue;
+                }
+                Err(why) => why,
+            };
+            match unsupported.iter_mut().find(|u| u.class == "trigger_teleport" && u.effect == effect) {
+                Some(u) => u.count += 1,
+                None => unsupported.push(Unsupported { class: "trigger_teleport".into(), count: 1, effect }),
+            }
             continue;
         }
         if is_button {
@@ -238,12 +304,21 @@ pub fn from_bsp(map: &BspMap, name: &str, opts: ImportOptions) -> Result<(Course
         }
     };
     let hazards = hazard_ids.into_iter().filter_map(zone_of).collect();
+    let mut teleports = Vec::new();
+    for (i, e) in map.entities.iter().enumerate() {
+        if !e.classname().eq_ignore_ascii_case("trigger_teleport") {
+            continue;
+        }
+        if let (Ok(Some((origin, angles))), Some(zone)) = (plain_teleport(&map.entities, e), zone_of(i)) {
+            teleports.push(Teleport { zone, origin, angles });
+        }
+    }
 
     // Spawn: the player spawn (not a teleport destination) nearest the start.
     let spawn = map
         .spawn_points()
         .into_iter()
-        .filter(|(label, ..)| label != "teleport")
+        .filter(|(label, ..)| !label.starts_with("teleport"))
         .min_by(|a, b| a.1.sub(start_point).length().total_cmp(&b.1.sub(start_point).length()));
     let Some((_, spawn_origin, spawn_yaw)) = spawn else { return fail("map has no player spawn", &report) };
     let world: World = map.world.clone().into();
@@ -260,6 +335,7 @@ pub fn from_bsp(map: &BspMap, name: &str, opts: ImportOptions) -> Result<(Course
         hazards,
         kill_z: lowest - 256.0,
         waypoints: Vec::new(),
+        teleports,
         meta: CourseMeta { name: name.to_string() },
     };
     Ok((course, report))

@@ -34,24 +34,45 @@ fn classify_reports_what_the_sim_does_not_model() {
     let ents = vec![
         ent(&[("classname", "func_button"), ("targetname", "climb_startbutton"), ("spawnflags", "1025")]),
         ent(&[("classname", "func_button"), ("targetname", "climb_endbutton"), ("spawnflags", "1")]),
-        ent(&[("classname", "trigger_teleport")]),
-        ent(&[("classname", "trigger_teleport")]),
+        // Plain teleports are imported; these are not.
+        ent(&[("classname", "trigger_teleport"), ("spawnflags", "1")]),
+        ent(&[("classname", "trigger_teleport"), ("spawnflags", "1"), ("target", "missing")]),
+        ent(&[("classname", "trigger_teleport"), ("spawnflags", "1"), ("target", "dest"), ("landmark", "lm")]),
+        ent(&[("classname", "trigger_teleport"), ("spawnflags", "1"), ("target", "dest"), ("StartDisabled", "1")]),
         ent(&[("classname", "trigger_push")]),
         ent(&[("classname", "func_door")]),
         ent(&[("classname", "trigger_multiple"), ("targetname", "bhop_reset")]),
         ent(&[("classname", "trigger_soundscape")]),
         ent(&[("classname", "func_brush")]),
+        ent(&[("classname", "info_teleport_destination"), ("targetname", "dest"), ("origin", "1 2 3"), ("angles", "0 90 0")]),
+        ent(&[("classname", "trigger_teleport"), ("spawnflags", "4097"), ("target", "dest")]),
+        ent(&[("classname", "trigger_teleport"), ("spawnflags", "33"), ("target", "dest")]),
+        // Not for clients, or only for clients in vehicles: never touches a player on foot.
+        ent(&[("classname", "trigger_teleport"), ("spawnflags", "2"), ("target", "dest")]),
     ];
     let (_, _, _, report) = classify(&ents);
     let got: Vec<(&str, usize)> = report.unsupported.iter().map(|u| (u.class.as_str(), u.count)).collect();
     assert_eq!(
         got,
-        [("trigger_teleport", 2), ("trigger_push", 1), ("func_door", 1), ("trigger_multiple", 1), ("trigger_soundscape", 1)]
+        [
+            ("trigger_teleport", 1),
+            ("trigger_teleport", 1),
+            ("trigger_teleport", 1),
+            ("trigger_teleport", 1),
+            ("trigger_push", 1),
+            ("func_door", 1),
+            ("trigger_multiple", 1),
+            ("trigger_soundscape", 1)
+        ]
     );
+    assert_eq!(report.teleports, 1, "{report}");
+    let plain = course::bsp::plain_teleport(&ents, &ents[12]).unwrap();
+    assert_eq!(plain, Some((Vec3::new(1.0, 2.0, 3.0), Some(Vec3::new(0.0, 90.0, 0.0)))));
+    assert_eq!(course::bsp::plain_teleport(&ents, &ents[13]).unwrap(), None, "spawnflag 32: clients in vehicles only");
     // An end button without "Use Activates" is noted.
     assert!(report.notes.iter().any(|n| n.contains("end button") && n.contains("not use-activated")), "{report}");
     let text = report.to_string();
-    assert!(text.contains("trigger_teleport x2"), "{text}");
+    assert!(text.contains("trigger_teleport x1: teleport with a landmark"), "{text}");
 }
 
 fn real_map() -> Option<BspMap> {
@@ -66,14 +87,29 @@ fn real_map() -> Option<BspMap> {
 }
 
 #[test]
-fn real_map_with_teleports_is_rejected_by_default() {
+fn real_map_imports_its_stage_teleports() {
     let Some(map) = real_map() else { return };
-    let err = from_bsp(&map, "kz", ImportOptions::default()).expect_err("teleports must be refused");
-    let text = err.to_string();
-    println!("{text}");
-    assert!(err.report.unsupported.iter().any(|u| u.class == "trigger_teleport" && u.count == 7), "{text}");
-    assert!(err.report.start.as_deref().unwrap_or("").contains("climb_startbutton"));
-    assert!(err.report.end.as_deref().unwrap_or("").contains("climb_endbutton"));
+    let (course, report) = from_bsp(&map, "kz", ImportOptions::default()).expect("plain teleports import by default");
+    println!("{report}");
+    assert!(report.unsupported.is_empty(), "{report}");
+    assert_eq!((report.teleports, course.teleports.len()), (7, 7), "{report}");
+    assert!(report.start.as_deref().unwrap_or("").contains("climb_startbutton"));
+    assert!(report.end.as_deref().unwrap_or("").contains("climb_endbutton"));
+    // Each stage teleport sends the player to the next stage's start, facing yaw 0, from an 8-unit slab.
+    for t in &course.teleports {
+        assert_eq!(t.angles, Some(Vec3::ZERO));
+        let (lo, hi) = t.zone.bounds().expect("teleport volume");
+        assert_eq!(hi.z - lo.z, 8.0);
+        assert!(t.origin.z < lo.z, "destination {:?} below the slab {lo:?}", t.origin);
+    }
+    // Stand on a teleport slab: the player lands on the destination.
+    let t = &course.teleports[0];
+    let (lo, hi) = t.zone.bounds().unwrap();
+    let mut s = PlayerState::new(Vec3::new((lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5, lo.z + 1.0));
+    s.velocity = Vec3::new(100.0, 0.0, 0.0);
+    let hit = course.touch_teleports(&mut s).expect("touches the slab");
+    assert_eq!((s.origin, s.velocity, s.ground_entity), (t.origin, Vec3::new(100.0, 0.0, 0.0), None));
+    assert_eq!(hit.angles, Some(Vec3::ZERO));
 }
 
 /// A standing state on the floor in front of the button at `target`, facing it, from which `+use`

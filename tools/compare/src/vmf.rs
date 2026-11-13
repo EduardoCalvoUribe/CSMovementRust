@@ -130,11 +130,22 @@ fn solid(out: &mut String, ids: &mut Ids, shape: Shape, material: &str) {
     out.push_str("\t}\n");
 }
 
-/// A brush entity (a `func_button`): its class, keyvalues, and boxes.
+/// Material for trigger brushes (non-solid, invisible).
+pub const TRIGGER_MATERIAL: &str = "TOOLS/TOOLSTRIGGER";
+
+/// A brush entity (a `func_button`, a `trigger_teleport`): its class, keyvalues, boxes, and the
+/// material of its faces (`None`: the solid dev texture).
 pub struct BrushEntity {
     pub class: &'static str,
     pub keys: Vec<(&'static str, String)>,
     pub boxes: Vec<(Vec3, Vec3)>,
+    pub material: Option<&'static str>,
+}
+
+/// A point entity (an `info_teleport_destination`): its class and keyvalues, `origin` included.
+pub struct PointEntity {
+    pub class: &'static str,
+    pub keys: Vec<(&'static str, String)>,
 }
 
 pub fn generate(level: &testlevel::Level) -> String {
@@ -143,6 +154,11 @@ pub fn generate(level: &testlevel::Level) -> String {
 
 /// The level plus brush entities.
 pub fn generate_with(level: &testlevel::Level, entities: &[BrushEntity]) -> String {
+    generate_full(level, entities, &[])
+}
+
+/// The level plus brush and point entities.
+pub fn generate_full(level: &testlevel::Level, entities: &[BrushEntity], points: &[PointEntity]) -> String {
     let mut ids = Ids { next: 1 };
     let mut out = String::new();
     out.push_str(
@@ -189,7 +205,14 @@ pub fn generate_with(level: &testlevel::Level, entities: &[BrushEntity]) -> Stri
             let _ = writeln!(out, "\t\"{k}\" \"{v}\"");
         }
         for &(min, max) in &e.boxes {
-            solid(&mut out, &mut ids, Shape::Box { min, max }, SOLID_MATERIAL);
+            solid(&mut out, &mut ids, Shape::Box { min, max }, e.material.unwrap_or(SOLID_MATERIAL));
+        }
+        out.push_str("}\n");
+    }
+    for p in points {
+        let _ = writeln!(out, "entity\n{{\n\t\"id\" \"{}\"\n\t\"classname\" \"{}\"", ids.take(), p.class);
+        for (k, v) in &p.keys {
+            let _ = writeln!(out, "\t\"{k}\" \"{v}\"");
         }
         out.push_str("}\n");
     }

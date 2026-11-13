@@ -72,6 +72,16 @@ impl Waypoint {
     }
 }
 
+/// A map teleport: a `trigger_teleport` volume and its `info_teleport_destination`.
+#[derive(Clone, Debug)]
+pub struct Teleport {
+    pub zone: Zone,
+    /// Where the origin is put (the destination's origin; the player's mins.z is 0).
+    pub origin: Vec3,
+    /// The view angles the player is given (the destination's angles), or `None` to keep the view.
+    pub angles: Option<Vec3>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct CourseMeta {
     pub name: String,
@@ -92,10 +102,26 @@ pub struct Course {
     /// reached in order (`CourseRun::next_waypoint`) and feed observations and shaping rewards, never the
     /// run's outcome.
     pub waypoints: Vec<Waypoint>,
+    /// Map teleports, applied after each command's movement (`touch_teleports`).
+    pub teleports: Vec<Teleport>,
     pub meta: CourseMeta,
 }
 
 impl Course {
+    /// Apply the first teleport whose volume the player's hull overlaps after a command's movement, as
+    /// the engine's trigger touch does: the origin moves to the destination and the player leaves the
+    /// ground; velocity is kept (Source SDK 2013 `CTriggerTeleport::Touch` passes no velocity). The
+    /// caller sets the view to the returned teleport's `angles`. Rules measured on the real server:
+    /// docs/teleport-rules.md.
+    pub fn touch_teleports(&self, state: &mut PlayerState) -> Option<&Teleport> {
+        let hull = state.hull();
+        let t = self.teleports.iter().find(|t| t.zone.overlaps(state.origin, hull))?;
+        state.origin = t.origin;
+        state.ground_entity = None;
+        state.game_moved = true;
+        Some(t)
+    }
+
     /// The entities `+use` can press on this course: the start and end buttons.
     pub fn buttons(&self) -> impl Iterator<Item = EntityId> + '_ {
         let start = match &self.start {

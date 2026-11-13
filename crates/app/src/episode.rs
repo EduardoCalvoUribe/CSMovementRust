@@ -219,7 +219,7 @@ mod tests {
                 assert_eq!((sim.tickrate, sim.autohop), (ep.recording.tickrate, ep.recording.autobhop));
                 while let Some(cmd) = view.next_cmd() {
                     sim.step(cmd);
-                    view.run.update(&view.course, &sim.state, &cmd);
+                    view.run.after_command(&view.course, &mut sim.state, &cmd);
                 }
                 assert_eq!(state_fields(&sim.state), ep.final_state, "{stage:?} lap {lap}");
                 assert_eq!((view.run.status, view.run.elapsed_ticks), (ep.status, ep.run_ticks));

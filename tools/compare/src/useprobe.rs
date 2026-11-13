@@ -123,6 +123,7 @@ pub fn level() -> (testlevel::Level, Vec<BrushEntity>) {
                 ("rendercolor", "255 255 255".into()),
             ],
             boxes: vec![(b.min, b.max)],
+            material: None,
         })
         .collect();
     (level, ents)
@@ -243,25 +244,29 @@ pub fn scenarios() -> Vec<Scenario> {
 // ---------------------------------------------------------------------------------------------------
 // Report
 
-struct Event {
-    tick: u32,
-    in_cmd: bool,
-    what: String,
-    name: String,
-    value: f32,
-    eye: Vec3,
+/// One events.csv row (plugin 1.2+).
+pub struct Event {
+    pub tick: u32,
+    pub in_cmd: bool,
+    pub what: String,
+    pub name: String,
+    pub value: f32,
+    pub eye: Vec3,
+    /// Eye angles (pitch yaw roll) when the event was logged.
+    pub angles: Vec3,
 }
 
 fn bits(s: &str) -> Result<f32, String> {
     u32::from_str_radix(s, 16).map(f32::from_bits).map_err(|_| format!("bad float bits `{s}`"))
 }
 
-fn parse_events(text: &str) -> Result<Vec<Event>, String> {
+pub fn parse_events(text: &str) -> Result<Vec<Event>, String> {
     let mut lines = text.lines();
     let head: Vec<&str> = lines.next().ok_or("empty events.csv")?.split(',').collect();
     let col = |n: &str| head.iter().position(|h| *h == n).ok_or_else(|| format!("events.csv: no column {n}"));
     let (t, ic, ev, nm, vb, ex, ey, ez) =
         (col("tick")?, col("in_cmd")?, col("event")?, col("name")?, col("value_bits")?, col("eye_x_bits")?, col("eye_y_bits")?, col("eye_z_bits")?);
+    let (ap, ay, ar) = (col("pitch_bits")?, col("yaw_bits")?, col("roll_bits")?);
     lines
         .filter(|l| !l.trim().is_empty())
         .map(|l| {
@@ -273,6 +278,7 @@ fn parse_events(text: &str) -> Result<Vec<Event>, String> {
                 name: c[nm].to_string(),
                 value: bits(c[vb])?,
                 eye: Vec3::new(bits(c[ex])?, bits(c[ey])?, bits(c[ez])?),
+                angles: Vec3::new(bits(c[ap])?, bits(c[ay])?, bits(c[ar])?),
             })
         })
         .collect()
@@ -397,12 +403,13 @@ fn probe_course(start: &str, end: Option<&str>) -> (course::Course, Vec<(&'stati
         hazards: Vec::new(),
         kill_z: -1000.0,
         waypoints: Vec::new(),
+        teleports: Vec::new(),
         meta: Default::default(),
     };
     (course, ids)
 }
 
-fn row_state(r: &crate::capture::Row) -> movement::PlayerState {
+pub fn row_state(r: &crate::capture::Row) -> movement::PlayerState {
     let mut s = movement::PlayerState::new(r.origin);
     s.velocity = r.velocity;
     s.ground_entity = (r.ground >= 0).then_some(movement::EntityId(0));
@@ -414,6 +421,61 @@ fn row_state(r: &crate::capture::Row) -> movement::PlayerState {
 /// Every fresh press in the probe captures under `root`, predicted with `course::use_target` from the
 /// server's eye position, against what the server did; and the GOKZ scenarios' timer events against
 /// `CourseRun` on the captured states. Errors if anything is unexplained.
+/// GOKZ's timer starts (and restarts) and end time in a capture against `CourseRun` fed the captured
+/// states. `teleports` lists the commands a map teleport fired in, if any. `None` when the capture has
+/// no timer events and none are predicted.
+pub fn timer_check(
+    cap: &crate::capture::Capture,
+    events: &[Event],
+    course: &course::Course,
+    teleports: Option<&[u32]>,
+) -> Option<(bool, String)> {
+    let id = cap.scenario.get("scenario").unwrap_or("?");
+    let mut run = course::CourseRun::starting_at(&row_state(&cap.pre[0]));
+    let mut ours = Vec::new();
+    for (k, c) in cap.cmds.iter().enumerate() {
+        let before = (run.status, run.elapsed_ticks);
+        if teleports.is_some_and(|t| t.contains(&(k as u32))) {
+            run.teleported();
+        }
+        run.update(course, &row_state(&cap.post[k]), c);
+        // The last command is left out: the server's after-command event for it is never logged.
+        if run.status == course::Status::Running && run.elapsed_ticks == 0 && k + 1 < cap.cmds.len() {
+            ours.push(k as u32);
+        }
+        if run.status == course::Status::Completed && before.0 != course::Status::Completed {
+            ours.push(100_000 + run.elapsed_ticks);
+        }
+    }
+    // Server: a start inside command k, or an outside one tagged k (after command k - 1).
+    let mut theirs: Vec<u32> = events
+        .iter()
+        .filter_map(|e| match e.what.as_str() {
+            "timer_start" if e.in_cmd => Some(e.tick),
+            "timer_start" => e.tick.checked_sub(1),
+            "timer_end" => Some(100_000 + (e.value * 128.0).round() as u32),
+            _ => None,
+        })
+        .collect();
+    theirs.sort();
+    theirs.dedup();
+    // Starts before the first command belong to the previous scenario's virtual button.
+    let first_cmd_start = ours.first().copied().unwrap_or(0);
+    let last = cap.cmds.len() as u32 - 1;
+    theirs.retain(|&t| t >= first_cmd_start && t != last);
+    if ours.is_empty() && theirs.is_empty() {
+        return None;
+    }
+    let line = if ours == theirs {
+        format!("{id}: timer starts and end match ({} events)", ours.len())
+    } else {
+        format!("{id}: timer MISMATCH
+  ours   {ours:?}
+  server {theirs:?}")
+    };
+    Some((ours == theirs, line))
+}
+
 pub fn check(root: &Path) -> Result<(), String> {
     let mut agree = 0u32;
     let mut refire = 0u32;
@@ -455,42 +517,7 @@ pub fn check(root: &Path) -> Result<(), String> {
             }
         }
         if is_g {
-            // Timer: restarts and the end time, with CourseRun fed the captured states.
-            let mut run = course::CourseRun::starting_at(&row_state(&cap.pre[0]));
-            let mut ours = Vec::new();
-            for (k, c) in cap.cmds.iter().enumerate() {
-                let before = (run.status, run.elapsed_ticks);
-                run.update(&course, &row_state(&cap.post[k]), c);
-                // The last command is left out: the server's after-command event for it is never logged.
-                if run.status == course::Status::Running && run.elapsed_ticks == 0 && k + 1 < cap.cmds.len() {
-                    ours.push(k as u32);
-                }
-                if run.status == course::Status::Completed && before.0 != course::Status::Completed {
-                    ours.push(100_000 + run.elapsed_ticks);
-                }
-            }
-            // Server: a start inside command k, or an outside one tagged k (after command k - 1).
-            let mut theirs: Vec<u32> = events
-                .iter()
-                .filter_map(|e| match e.what.as_str() {
-                    "timer_start" if e.in_cmd => Some(e.tick),
-                    "timer_start" => e.tick.checked_sub(1),
-                    "timer_end" => Some(100_000 + (e.value * 128.0).round() as u32),
-                    _ => None,
-                })
-                .collect();
-            theirs.sort();
-            theirs.dedup();
-            // Starts before the first command belong to the previous scenario's virtual button.
-            let first_cmd_start = ours.first().copied().unwrap_or(0);
-            let last = cap.cmds.len() as u32 - 1;
-            theirs.retain(|&t| t >= first_cmd_start && t != last);
-            let line = if ours == theirs {
-                format!("{id}: timer starts and end match ({} events)", ours.len())
-            } else {
-                format!("{id}: timer MISMATCH\n  ours   {ours:?}\n  server {theirs:?}")
-            };
-            gokz.push((ours == theirs, line));
+            gokz.extend(timer_check(&cap, &events, &course, None));
         }
     }
     println!("presses: {agree} agree, {refire} explained by the refire delay, {} unexplained", bad.len());

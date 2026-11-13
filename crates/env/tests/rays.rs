@@ -39,6 +39,7 @@ fn scene() -> (Course, Vec<Brush>, Zone, Zone) {
         hazards: vec![hazard.clone()],
         kill_z: -256.0,
         waypoints: Vec::new(),
+        teleports: Vec::new(),
         meta: CourseMeta { name: "rays".into() },
     };
     (course, brushes, goal, hazard)
